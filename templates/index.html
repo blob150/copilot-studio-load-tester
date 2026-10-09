@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Copilot Studio Agent Load Tester</title>
+<style>
+  :root{--bg:#0f1115;--panel:#1a1d24;--panel2:#22262f;--ink:#e6e8ec;--muted:#9aa3b2;
+    --accent:#4ea1ff;--ok:#36c08a;--warn:#f2b441;--err:# e85c5c;--err:#e85c5c;--line:#2c313c;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Segoe UI,system-ui,sans-serif}
+  header{padding:14px 22px;background:var(--panel);border-bottom:1px solid var(--line);
+    display:flex;align-items:center;gap:14px}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:2px 8px;border-radius:20px}
+  .wrap{display:grid;grid-template-columns:340px 1fr;gap:18px;padding:18px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
+    margin:0 0 12px}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+  input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);
+    color:var(--ink);border-radius:7px;padding:8px 10px;font:inherit}
+  input.derived{background:#15181e;color:var(--muted);border-style:dashed;cursor:not-allowed}
+  textarea{resize:vertical;min-height:60px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .btn{background:var(--accent);color:#061018;border:none;border-radius:7px;padding:10px 16px;
+    font-weight:600;cursor:pointer;width:100%;margin-top:14px}
+  .btn.stop{background:var(--err);color:#fff}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .kpi .v{font-size:26px;font-weight:700}
+  .kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .kpi.ok .v{color:var(--ok)} .kpi.err .v{color:var(--err)} .kpi.warn .v{color:var(--warn)}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  canvas{width:100%;height:180px;background:var(--panel2);border-radius:8px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase}
+  .pill{padding:1px 8px;border-radius:20px;font-size:11px;font-weight:600}
+  .s2{background:#143; color:var(--ok)} .s4{background:#432;color:var(--warn)}
+  .s5,.s0{background:#422;color:var(--err)}
+  .feed{max-height:230px;overflow:auto;font-size:12px;font-family:Consolas,monospace}
+  .feed .r{padding:3px 6px;border-bottom:1px solid var(--line);display:flex;gap:10px}
+  .phase{font-weight:600;color:var(--accent)}
+  .banner{background:#20303f;border:1px solid var(--accent);border-radius:8px;padding:12px;
+    margin-bottom:14px;font-size:13px}
+  .banner a{color:var(--accent)} .banner code{font-size:16px;font-weight:700;color:#fff}
+  .muted{color:var(--muted)} .mt{margin-top:16px}
+  .hist td{font-size:12px}
+  .credits{font-size:11px}
+  .tabs{display:flex;gap:8px;margin-bottom:14px}
+  .tab{padding:7px 14px;border:1px solid var(--line);border-radius:7px;cursor:pointer;color:var(--muted)}
+  .tab.active{background:var(--panel);color:var(--ink);border-color:var(--accent)}
+</style>
+</head>
+<body>
+<header>
+  <h1>Copilot Studio Agent Load Tester</h1>
+  <span class="tag">local</span>
+  <span class="tag" id="phaseTag">idle</span>
+</header>
+
+<div class="tabs" style="padding:0 18px">
+  <div class="tab active" data-tab="live">Live Test</div>
+  <div class="tab" data-tab="history">Run History</div>
+</div>
+
+<!-- LIVE TAB -->
+<div class="wrap" id="tab-live">
+  <div class="panel">
+    <h2>Configuration</h2>
+    <label>Saved configurations</label>
+    <div class="row">
+      <select id="presetSelect"><option value="">— Select a saved config —</option></select>
+      <div style="display:flex;gap:6px">
+        <button class="btn" style="margin:0" id="loadPresetBtn">Load</button>
+        <button class="btn" style="margin:0;background:var(--err);color:#fff" id="deletePresetBtn">Delete</button>
+      </div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <input id="presetName" placeholder="Name this configuration…">
+      <button class="btn" style="margin:0" id="savePresetBtn">Save config</button>
+    </div>
+
+    <label style="margin-top:16px">Endpoint URL (paste full D2E URL)</label>
+    <textarea id="url" placeholder="https://{env}.environment.api.powerplatform.com/copilotstudio/dataverse-backed/authenticated/bots/{schema}/conversations?api-version=2022-03-01-preview"></textarea>
+    <div class="row">
+      <div><label>Host (auto)</label><input id="host" readonly class="derived"></div>
+      <div><label>Schema (auto)</label><input id="schema" readonly class="derived"></div>
+    </div>
+    <label>Environment ID (for credit lookup)</label>
+    <input id="environment_id" placeholder="GUID">
+    <label>Dataverse org URL (for historical tool enrichment)</label>
+    <input id="org_url" placeholder="https://orgxxxx.crm.dynamics.com">
+
+    <label>Auth mode</label>
+    <select id="auth_mode">
+      <option value="devicecode">Device code (cached)</option>
+      <option value="static">Static bearer token</option>
+    </select>
+    <div class="row" id="aadRow">
+      <div><label>Tenant ID</label><input id="tenant_id"></div>
+      <div><label>Client ID</label><input id="client_id"></div>
+    </div>
+    <div id="tokRow" style="display:none"><label>Bearer token</label><textarea id="static_token"></textarea></div>
+    <button class="btn" id="authBtn" style="background:var(--panel2);color:var(--ink);border:1px solid var(--line)">Authenticate now</button>
+    <div id="authState" class="muted" style="font-size:12px;margin-top:6px"></div>
+
+    <label>Load mode</label>
+    <select id="mode">
+      <option value="spike">Event spike (ramp/hold/down)</option>
+      <option value="stepped">Stepped RPM (characterization)</option>
+    </select>
+
+    <div id="spikeCfg">
+      <div class="row">
+        <div><label>Virtual users</label><input id="virtual_users" type="number" value="50"></div>
+        <div><label>Sessions / VU (0=∞)</label><input id="sessions_per_vu" type="number" value="1"></div>
+      </div>
+      <div class="row">
+        <div><label>Ramp-up (s)</label><input id="rampup_seconds" type="number" value="30"></div>
+        <div><label>Hold (s)</label><input id="hold_seconds" type="number" value="120"></div>
+      </div>
+      <label>Ramp-down (s)</label><input id="rampdown_seconds" type="number" value="15">
+    </div>
+
+    <div id="stepCfg" style="display:none">
+      <label>Steps (RPM, comma-sep)</label><input id="steps" value="20,40,60,80">
+      <div class="row">
+        <div><label>Hold each (s)</label><input id="step_hold_seconds" type="number" value="60"></div>
+        <div><label>Max concurrency</label><input id="max_concurrency" type="number" value="100"></div>
+      </div>
+    </div>
+
+    <div class="row mt">
+      <div><label>Turns / session</label><input id="turns_per_session" type="number" value="4"></div>
+      <div><label>Req timeout (s)</label><input id="request_timeout" type="number" value="120"></div>
+    </div>
+    <div class="row">
+      <div><label>Think min (s)</label><input id="think_min" type="number" value="15"></div>
+      <div><label>Think max (s)</label><input id="think_max" type="number" value="45"></div>
+    </div>
+    <label>Prompts (one per line)</label>
+    <textarea id="prompts">What is the standard operating procedure for onboarding?
+Summarize the safety guidelines for lab access.
+What are the steps to file an incident report?</textarea>
+    <label><input type="checkbox" id="stop_on_throttle" style="width:auto"> Stop on first throttle</label>
+    <label>Run label</label><input id="label" placeholder="e.g. Merck spike sim 2k">
+
+    <button class="btn" id="startBtn">Start Test</button>
+    <button class="btn stop" id="stopBtn" style="display:none">Stop Test</button>
+  </div>
+
+  <div>
+    <div id="deviceBanner" class="banner" style="display:none"></div>
+    <div class="kpis">
+      <div class="kpi"><div class="v" id="k_total">0</div><div class="l">Requests</div></div>
+      <div class="kpi ok"><div class="v" id="k_success">0%</div><div class="l">Success</div></div>
+      <div class="kpi err"><div class="v" id="k_err">0</div><div class="l">Errors</div></div>
+      <div class="kpi warn"><div class="v" id="k_thr">0</div><div class="l">Throttled</div></div>
+      <div class="kpi"><div class="v" id="k_active">0</div><div class="l">Active sessions</div></div>
+      <div class="kpi"><div class="v" id="k_rpm">0</div><div class="l">Achieved RPM</div></div>
+      <div class="kpi"><div class="v" id="k_p50">0</div><div class="l">p50 ms</div></div>
+      <div class="kpi"><div class="v" id="k_p95">0</div><div class="l">p95 ms</div></div>
+      <div class="kpi"><div class="v" id="k_tools">0</div><div class="l">Tool calls (live)</div></div>
+      <div class="kpi"><div class="v" id="k_know">0</div><div class="l">Knowledge hits</div></div>
+    </div>
+
+    <div class="grid2">
+      <div class="panel"><h2>Throughput (RPM) & errors</h2><canvas id="chartThr"></canvas></div>
+      <div class="panel"><h2>Latency p50 / p95 (ms)</h2><canvas id="chartLat"></canvas></div>
+    </div>
+
+    <div class="grid2 mt">
+      <div class="panel"><h2>By status code</h2><table id="statusTbl"><tbody></tbody></table></div>
+      <div class="panel"><h2>By request type</h2><table id="kindTbl">
+        <thead><tr><th>Kind</th><th>Count</th><th>OK</th><th>p50</th><th>p95</th></tr></thead>
+        <tbody></tbody></table></div>
+    </div>
+
+    <div class="panel mt"><h2>By tool invoked (live, best-effort)</h2>
+      <table id="toolTbl"><thead><tr><th>Tool</th><th>Invocations</th></tr></thead><tbody></tbody></table>
+      <p class="muted" style="font-size:11px">Parsed live from the agent's plan events. Authoritative counts come from transcript enrichment in Run History.</p>
+    </div>
+
+    <div class="panel mt"><h2>Recent events</h2><div class="feed" id="feed"></div></div>
+  </div>
+</div>
+
+<!-- HISTORY TAB -->
+<div style="padding:0 18px;display:none" id="tab-history">
+  <div class="panel mt">
+    <h2>Trend across runs</h2>
+    <div class="row">
+      <div><label>Filter by schema (optional)</label><input id="trendSchema" placeholder="e.g. new_SOPStandardAgent"></div>
+      <div style="display:flex;align-items:flex-end"><button class="btn" style="margin:0" id="trendRefreshBtn">Refresh trend</button></div>
+    </div>
+    <div class="grid2 mt">
+      <div><p class="muted" style="font-size:11px;margin:4px 0">p50 / p95 latency (ms) across runs</p><canvas id="trendLat"></canvas></div>
+      <div><p class="muted" style="font-size:11px;margin:4px 0">Success rate (%) & throttled count across runs</p><canvas id="trendSucc"></canvas></div>
+    </div>
+  </div>
+  <div class="panel mt">
+    <h2>Run History</h2>
+    <table class="hist"><thead><tr>
+      <th>When</th><th>Label</th><th>Schema</th><th>Status</th>
+      <th>Reqs</th><th>Success</th><th>Throttled</th><th>p95</th>
+      <th>Tools (live)</th><th>Tools (transcript)</th><th>Credits (MCS)</th><th></th>
+    </tr></thead><tbody id="histBody"></tbody></table>
+    <p class="muted mt">Credit/consumption data aggregates daily and may take hours to surface.
+      Use “Refresh credits” on a run to re-query allocation & billing state.</p>
+  </div>
+</div>
+
+
+<script>
+const $ = id => document.getElementById(id);
+let polling = null;
+
+// tabs
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  const tab = t.dataset.tab;
+  $('tab-live').style.display = tab==='live'?'grid':'none';
+  $('tab-history').style.display = tab==='history'?'block':'none';
+  if(tab==='history'){ loadHistory(); loadTrend(); }
+});
+
+// url parse (live as you paste/edit)
+async function parseUrl(){
+  const r = await fetch('/api/parse_url',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({url:$('url').value})});
+  const d = await r.json();
+  $('host').value = d.host || '';
+  $('schema').value = d.schema || '';
+}
+$('url').addEventListener('input', parseUrl);
+$('url').addEventListener('blur', parseUrl);
+$('auth_mode').onchange = e => {
+  const s = e.target.value==='static';
+  $('tokRow').style.display = s?'block':'none';
+  $('aadRow').style.display = s?'none':'grid';
+};
+$('mode').onchange = e => {
+  const st = e.target.value==='stepped';
+  $('stepCfg').style.display = st?'block':'none';
+  $('spikeCfg').style.display = st?'none':'block';
+};
+
+function cfg(){
+  return {
+    url:$('url').value, host:$('host').value, schema:$('schema').value,
+    environment_id:$('environment_id').value, org_url:$('org_url').value,
+    auth_mode:$('auth_mode').value, tenant_id:$('tenant_id').value,
+    client_id:$('client_id').value, static_token:$('static_token').value,
+    mode:$('mode').value,
+    virtual_users:+$('virtual_users').value, sessions_per_vu:+$('sessions_per_vu').value,
+    rampup_seconds:+$('rampup_seconds').value, hold_seconds:+$('hold_seconds').value,
+    rampdown_seconds:+$('rampdown_seconds').value,
+    steps:$('steps').value.split(',').map(x=>+x.trim()).filter(Boolean),
+    step_hold_seconds:+$('step_hold_seconds').value, max_concurrency:+$('max_concurrency').value,
+    turns_per_session:+$('turns_per_session').value, request_timeout:+$('request_timeout').value,
+    think_time_seconds:[+$('think_min').value,+$('think_max').value],
+    prompts:$('prompts').value.split('\n').map(s=>s.trim()).filter(Boolean),
+    stop_on_throttle:$('stop_on_throttle').checked, label:$('label').value
+  };
+}
+
+function applyConfig(c){
+  if(!c) return;
+  const set = (id,val) => { if(val!==undefined && val!==null) $(id).value = val; };
+  set('url', c.url); parseUrl();
+  set('environment_id', c.environment_id); set('org_url', c.org_url);
+  if(c.auth_mode){ $('auth_mode').value = c.auth_mode; $('auth_mode').dispatchEvent(new Event('change')); }
+  set('tenant_id', c.tenant_id); set('client_id', c.client_id); set('static_token', c.static_token);
+  if(c.mode){ $('mode').value = c.mode; $('mode').dispatchEvent(new Event('change')); }
+  set('virtual_users', c.virtual_users); set('sessions_per_vu', c.sessions_per_vu);
+  set('rampup_seconds', c.rampup_seconds); set('hold_seconds', c.hold_seconds);
+  set('rampdown_seconds', c.rampdown_seconds);
+  if(c.steps) set('steps', c.steps.join(','));
+  set('step_hold_seconds', c.step_hold_seconds); set('max_concurrency', c.max_concurrency);
+  set('turns_per_session', c.turns_per_session); set('request_timeout', c.request_timeout);
+  if(c.think_time_seconds){ set('think_min', c.think_time_seconds[0]); set('think_max', c.think_time_seconds[1]); }
+  if(c.prompts) set('prompts', c.prompts.join('\n'));
+  $('stop_on_throttle').checked = !!c.stop_on_throttle;
+  set('label', c.label);
+}
+
+let presetsCache = [];
+async function loadPresets(){
+  const r = await fetch('/api/presets'); presetsCache = await r.json();
+  const sel = $('presetSelect');
+  sel.innerHTML = '<option value="">— Select a saved config —</option>' +
+    presetsCache.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+}
+$('savePresetBtn').onclick = async () => {
+  const name = $('presetName').value.trim();
+  if(!name){ alert('Enter a name for this configuration.'); return; }
+  await fetch('/api/presets',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name, config:cfg()})});
+  $('presetName').value='';
+  await loadPresets();
+};
+$('loadPresetBtn').onclick = async () => {
+  const id = $('presetSelect').value;
+  if(!id){ alert('Select a saved configuration first.'); return; }
+  const r = await fetch('/api/presets/'+id); const p = await r.json();
+  applyConfig(p.config);
+};
+$('deletePresetBtn').onclick = async () => {
+  const id = $('presetSelect').value;
+  if(!id) return;
+  if(!confirm('Delete this saved configuration?')) return;
+  await fetch('/api/presets/'+id,{method:'DELETE'});
+  await loadPresets();
+};
+loadPresets();
+
+$('authBtn').onclick = async () => {
+  $('authState').textContent = 'Starting sign-in…';
+  await fetch('/api/authenticate',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(cfg())});
+  const ap = setInterval(async () => {
+    const r = await fetch('/api/auth_status'); const a = await r.json();
+    if(a.device_prompt && a.status==='pending'){
+      $('authState').innerHTML = `Open <a href="${a.device_prompt.url}" target="_blank">${a.device_prompt.url}</a> and enter <code>${a.device_prompt.code}</code>`;
+    }
+    if(a.status==='signed_in'){ $('authState').textContent = '✓ Signed in as '+(a.user||''); clearInterval(ap); }
+    if(a.status==='error'){ $('authState').textContent = '✗ '+(a.user||'auth failed'); clearInterval(ap); }
+  }, 1500);
+};
+
+$('startBtn').onclick = async () => {
+  const r = await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(cfg())});
+  const d = await r.json();
+  if(d.error){ alert(d.error); return; }
+  $('startBtn').style.display='none'; $('stopBtn').style.display='block';
+  if(!polling) polling = setInterval(poll, 1000);
+};
+$('stopBtn').onclick = async () => {
+  await fetch('/api/stop',{method:'POST'});
+};
+
+async function poll(){
+  const r = await fetch('/api/status'); const s = await r.json();
+  $('phaseTag').textContent = s.phase || 'idle';
+  if(s.device_prompt){
+    $('deviceBanner').style.display='block';
+    $('deviceBanner').innerHTML = `Sign in: open <a href="${s.device_prompt.url}" target="_blank">${s.device_prompt.url}</a> and enter code <code>${s.device_prompt.code}</code>`;
+  } else { $('deviceBanner').style.display='none'; }
+  if(s.total===undefined) return;
+  $('k_total').textContent=s.total; $('k_success').textContent=s.success_rate+'%';
+  $('k_err').textContent=s.errors; $('k_thr').textContent=s.throttled;
+  $('k_active').textContent=s.active_sessions; $('k_rpm').textContent=s.achieved_rpm;
+  $('k_p50').textContent=s.p50; $('k_p95').textContent=s.p95;
+  $('k_tools').textContent=s.tool_calls||0; $('k_know').textContent=s.knowledge_hits||0;
+  const ttb=$('toolTbl').querySelector('tbody'); ttb.innerHTML='';
+  Object.entries(s.tool_names||{}).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
+    ttb.innerHTML+=`<tr><td>${k}</td><td>${v}</td></tr>`;
+  });
+  if(!Object.keys(s.tool_names||{}).length) ttb.innerHTML='<tr><td class="muted" colspan="2">No tool calls detected yet.</td></tr>';
+  // status table
+  const stb=$('statusTbl').querySelector('tbody'); stb.innerHTML='';
+  Object.entries(s.by_status||{}).sort().forEach(([k,v])=>{
+    const cls = k[0]==='2'?'s2':(k[0]==='4'?'s4':'s5');
+    stb.innerHTML+=`<tr><td><span class="pill ${cls}">${k}</span></td><td>${v}</td></tr>`;
+  });
+  const ktb=$('kindTbl').querySelector('tbody'); ktb.innerHTML='';
+  Object.entries(s.by_kind||{}).forEach(([k,v])=>{
+    ktb.innerHTML+=`<tr><td>${k}</td><td>${v.count}</td><td>${v.ok}</td><td>${v.p50}</td><td>${v.p95}</td></tr>`;
+  });
+  const fd=$('feed'); fd.innerHTML=(s.recent||[]).map(e=>{
+    const c=e.throttled?'var(--warn)':(e.ok?'var(--ok)':'var(--err)');
+    return `<div class="r"><span class="muted">${e.t}s</span><span>${e.kind}</span>
+      <span style="color:${c}">${e.status}${e.throttled?' THR':''}</span>
+      <span class="muted">${e.latency_ms}ms</span><span class="muted">${e.error||''}</span></div>`;
+  }).join('');
+  drawThr(s.series||[]); drawLat(s.series||[]);
+  if(!s.running && s.phase==='complete'){
+    $('startBtn').style.display='block'; $('stopBtn').style.display='none';
+    clearInterval(polling); polling=null;
+  }
+}
+
+function line(cv, series, keys, colors, maxHint){
+  const c=cv.getContext('2d'), W=cv.width=cv.clientWidth, H=cv.height=cv.clientHeight;
+  c.clearRect(0,0,W,H); if(!series.length) return;
+  const pad=24, max=Math.max(maxHint||1,...series.flatMap(d=>keys.map(k=>d[k]||0)))*1.1||1;
+  const xs=i=>pad+(W-2*pad)*i/Math.max(series.length-1,1);
+  const ys=v=>H-pad-(H-2*pad)*v/max;
+  c.strokeStyle='#2c313c'; c.beginPath(); c.moveTo(pad,H-pad); c.lineTo(W-pad,H-pad); c.stroke();
+  keys.forEach((k,ki)=>{ c.strokeStyle=colors[ki]; c.lineWidth=2; c.beginPath();
+    series.forEach((d,i)=>{ const x=xs(i),y=ys(d[k]||0); i?c.lineTo(x,y):c.moveTo(x,y); });
+    c.stroke(); });
+  c.fillStyle='#9aa3b2'; c.font='10px sans-serif'; c.fillText(Math.round(max),2,12);
+}
+function drawThr(s){ line($('chartThr'),s,['rpm','errors','throttled'],['#4ea1ff','#e85c5c','#f2b441']); }
+function drawLat(s){ line($('chartLat'),s,['p50','p95'],['#36c08a','#f2b441']); }
+
+async function loadTrend(){
+  const schema = $('trendSchema').value.trim();
+  const r = await fetch('/api/trends'+(schema?'?schema='+encodeURIComponent(schema):''));
+  const t = await r.json();
+  line($('trendLat'), t, ['p50','p95'], ['#36c08a','#f2b441']);
+  line($('trendSucc'), t, ['success_rate','throttled'], ['#4ea1ff','#e85c5c'], 100);
+}
+$('trendRefreshBtn').onclick = loadTrend;
+
+async function loadHistory(){
+  const r=await fetch('/api/runs'); const runs=await r.json();
+  $('histBody').innerHTML = runs.map(r=>{
+    const sm=r.summary||{}; const cr=r.credits||{};
+    const lt=r.live_tools||{}; const te=r.transcript_enrichment||{};
+    let credTxt = 'pending (click Refresh credits)';
+    let credTitle = '';
+    if(cr.status==='ok' && cr.mcs_messages_consumed!=null){
+      const snap = cr.consumption_snapshot_iso ? cr.consumption_snapshot_iso.slice(0,10) : '?';
+      const runDate = (r.created_iso||'').slice(0,10);
+      const stale = snap && runDate && snap < runDate;
+      credTxt = `${cr.mcs_messages_consumed} / ${cr.mcs_messages_allocated}`
+        + (stale ? ' ⚠️ stale' : ' ✓');
+      credTitle = `Consumption snapshot as of ${snap}` +
+        (stale ? ` — PREDATES this run (${runDate}); not yet reflected, re-check later.`
+               : ` — same day or newer than this run.`) +
+        ` Available: ${cr.mcs_messages_available}. Status: ${cr.mcs_messages_status}.`;
+    } else if(cr.status){
+      credTxt = cr.status;
+    }
+    const liveTools = lt.tool_calls!=null?lt.tool_calls:'';
+    const liveKnow = lt.knowledge_hits!=null?lt.knowledge_hits:'';
+    const transTools = te.status==='ok'?te.tool_calls:(te.status?te.status:'—');
+    return `<tr>
+      <td>${r.created_iso||''}</td><td>${r.label||''}</td><td>${r.schema||''}</td>
+      <td>${r.status||''}</td><td>${sm.total??''}</td>
+      <td>${sm.success_rate!=null?sm.success_rate+'%':''}</td>
+      <td>${sm.throttled??''}</td><td>${sm.p95??''}</td>
+      <td>${liveTools} tools / ${liveKnow} know.</td><td class="credits">${transTools}</td>
+      <td class="credits" title="${credTitle}">${credTxt}</td>
+      <td>
+        <button onclick="refreshCredits('${r.id}')">Refresh credits</button>
+        <button onclick="enrichTools('${r.id}')">Enrich tools</button>
+      </td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="12" class="muted">No runs yet.</td></tr>';
+}
+async function refreshCredits(id){
+  await fetch('/api/runs/'+id+'/credits',{method:'POST'}); loadHistory();
+}
+async function enrichTools(id){
+  const r = await fetch('/api/runs/'+id+'/enrich',{method:'POST',
+    headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+  const d = await r.json();
+  if(d.error){ alert(d.error); } else { alert('Enrichment: '+(d.status||'')+
+    '\nchecked conversations: '+(d.checked_convs||0)+
+    '\ntool calls: '+(d.tool_calls||0)+'  connector: '+(d.connector_calls||0)+
+    '\n'+(d.note||'')); }
+  loadHistory();
+}
+</script>
+</body>
+</html>

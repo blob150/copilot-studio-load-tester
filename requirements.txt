@@ -1,0 +1,4 @@
+msal>=1.39
+requests>=2.32
+# locust intentionally omitted — Phase A is local characterization only.
+# Add a scale-out platform (Azure Load Testing / Locust) after we have real numbers.

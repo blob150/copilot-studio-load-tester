@@ -1,0 +1,26 @@
+# Secrets & local auth
+.token_cache.bin
+config.json
+*.env
+.env
+
+# Local data (per-deployment; not meant to be shared/committed)
+loadtester.db
+loadtester.db-wal
+loadtester.db-shm
+runs/
+capture/
+*.csv
+*.log
+server.err
+rra.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db

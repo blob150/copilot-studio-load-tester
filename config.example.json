@@ -1,0 +1,27 @@
+{
+  "_comment": "Copy to config.json and fill in. Never commit real passwords.",
+  "host": "ea32dda382d5e9c4a499d7d7f2d31b.f3.environment.api.powerplatform.com",
+  "schema": "new_SOPStandardAgent",
+  "api_version": "2022-03-01-preview",
+
+  "tenant_id": "<MERCK_OR_TEST_TENANT_GUID>",
+  "client_id": "<ENTRA_APP_REGISTRATION_CLIENT_ID>",
+
+  "auth_mode": "devicecode",
+  "static_token": "<paste-a-bearer-token-here-if-auth_mode=static>",
+
+  "accounts": [
+    {"username": "loadtest01@tenant.onmicrosoft.com", "password": "REPLACE"},
+    {"username": "loadtest02@tenant.onmicrosoft.com", "password": "REPLACE"}
+  ],
+
+  "prompts": [
+    "What is the standard operating procedure for onboarding?",
+    "Summarize the safety guidelines for lab access.",
+    "How do I request time off?",
+    "What are the steps to file an incident report?"
+  ],
+
+  "think_time_seconds": [15, 45],
+  "turns_per_session": 4
+}
