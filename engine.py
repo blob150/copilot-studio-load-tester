@@ -34,13 +34,21 @@ class LoadEngine:
         return self._stop.is_set()
 
     # ---- a single virtual user session ------------------------------------
+    def _get_token(self, session_key: str) -> str:
+        """Use a stable per-session account when the provider supports pooling
+        (AccountPoolManager.get_token_for), so one conversation keeps one identity
+        throughout. Falls back to the plain get_token() for single-account providers."""
+        getter = getattr(self.provider, "get_token_for", None)
+        return getter(session_key) if getter else self.provider.get_token()
+
     def _session(self, user_id: str):
         with self._active_lock:
             self._active += 1
             self.stats.set_active(self._active)
         try:
-            token = self.provider.get_token()
+            token = self._get_token(user_id)
             start = self.client.start_conversation(token)
+            start.user_id = user_id
             self.stats.record("start", start)
             if not start.conversation_id or self._stop.is_set():
                 return
@@ -51,9 +59,12 @@ class LoadEngine:
             for _ in range(turns):
                 if self._stop.is_set():
                     break
-                token = self.provider.get_token()
-                r = self.client.send_message(token, conv, random.choice(prompts),
+                token = self._get_token(user_id)
+                prompt_text = random.choice(prompts)
+                r = self.client.send_message(token, conv, prompt_text,
                                              user_id=user_id)
+                r.user_id = user_id
+                r.prompt = prompt_text
                 self.stats.record("turn", r)
                 if self.cfg.get("stop_on_throttle") and r.throttled:
                     self._stop.set()
@@ -126,6 +137,25 @@ class LoadEngine:
         self._stop.set()
         for t in vu_threads:
             t.join(timeout=self.client.timeout + 5)
+        self.stats.finish()
+
+    def run_smoke(self):
+        """Smoke test: fire a small, fixed number of sessions concurrently, once,
+        and stop. No ramping, no RPM targeting -- just a quick 'does this actually
+        work end-to-end' check before committing to a real load run."""
+        self.stats.begin()
+        self.stats.set_phase("smoke")
+        n_sessions = int(self.cfg.get("smoke_sessions", 3))
+        threads = []
+        for i in range(n_sessions):
+            if self._stop.is_set():
+                break
+            t = threading.Thread(target=self._session, args=(f"smoke{i}",), daemon=True)
+            t.start()
+            threads.append(t)
+        for t in threads:
+            t.join(timeout=self.client.timeout + 5)
+        self._stop.set()
         self.stats.finish()
 
     def run_stepped(self):

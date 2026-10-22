@@ -1,4 +1,5 @@
 msal>=1.39
 requests>=2.32
+Flask>=3.0
 # locust intentionally omitted — Phase A is local characterization only.
 # Add a scale-out platform (Azure Load Testing / Locust) after we have real numbers.

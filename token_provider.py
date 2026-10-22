@@ -157,6 +157,141 @@ class TokenPool:
         ])
 
 
+class AccountPoolManager(TokenProvider):
+    """Interactive multi-account wizard: click 'Add account' N times, each triggers a
+    device-code sign-in (MFA-compliant, no devtools/copy-paste needed). All signed-in
+    accounts share one persisted MSAL cache and can be round-robined across virtual
+    users, each VU getting a STABLE assigned account for its whole session (so a
+    conversation never switches identity mid-stream) via get_token_for(key).
+
+    Caveat: the device-code flow re-uses whatever browser session is already present.
+    To add a genuinely different account, sign in from a private/incognito window
+    (or sign out of the browser first) when prompted.
+    """
+
+    def __init__(self, tenant_id: str, client_id: str):
+        self.tenant_id = tenant_id
+        self.client_id = client_id
+        self._lock = threading.Lock()
+        self._cache = _load_cache()
+        self._app = msal.PublicClientApplication(
+            client_id, authority=AUTHORITY_TEMPLATE.format(tenant_id=tenant_id),
+            token_cache=self._cache,
+        )
+        self._pending: dict | None = None
+        self._rr_idx = 0
+        self._expiry: dict[str, float] = {}   # home_account_id -> epoch seconds
+
+    def list_accounts(self) -> list[dict]:
+        """Each account's current token expiry, refreshing silently (cheap/cached by
+        MSAL) so the UI can show a live, accurate countdown rather than a stale guess."""
+        with self._lock:
+            accounts = list(self._app.get_accounts())
+        out = []
+        for a in accounts:
+            haid = a.get("home_account_id")
+            exp = self._expiry.get(haid)
+            status = "unknown"
+            try:
+                result = self._app.acquire_token_silent(SCOPE, account=a)
+                if result and "access_token" in result:
+                    exp = time.time() + int(result.get("expires_in", 3600))
+                    with self._lock:
+                        self._expiry[haid] = exp
+                    status = "valid"
+                else:
+                    status = "expired"
+            except Exception:
+                status = "error"
+            out.append({
+                "username": a.get("username"),
+                "home_account_id": haid,
+                "status": status,
+                "expires_at": exp,
+                "expires_iso": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(exp))
+                              if exp else None,
+                "seconds_remaining": max(0, int(exp - time.time())) if exp else None,
+            })
+        return out
+
+    def begin_add_account(self) -> dict:
+        """Kick off a new device-code sign-in in the background; returns the
+        code/URL to show the user immediately. Poll pending_status() for progress."""
+        with self._lock:
+            if self._pending and self._pending.get("status") == "pending":
+                return dict(self._pending)
+            flow = self._app.initiate_device_flow(scopes=SCOPE)
+            if "user_code" not in flow:
+                raise RuntimeError(f"Device flow failed to start: {flow}")
+            self._pending = {"status": "pending", "user_code": flow["user_code"],
+                             "verification_uri": flow.get("verification_uri"),
+                             "message": flow.get("message")}
+            pending_ref = self._pending
+
+        def worker():
+            try:
+                result = self._app.acquire_token_by_device_flow(flow)
+                _save_cache(self._cache)
+                with self._lock:
+                    if "access_token" in result:
+                        claims = result.get("id_token_claims", {}) or {}
+                        username = (claims.get("preferred_username") or claims.get("upn")
+                                   or "signed in")
+                        self._pending = {"status": "done", "username": username}
+                    else:
+                        self._pending = {"status": "error",
+                                         "error": result.get("error_description")
+                                         or str(result)}
+            except Exception as e:
+                with self._lock:
+                    self._pending = {"status": "error", "error": str(e)}
+
+        threading.Thread(target=worker, daemon=True).start()
+        return pending_ref
+
+    def pending_status(self) -> dict:
+        with self._lock:
+            return dict(self._pending) if self._pending else {"status": "none"}
+
+    def remove_account(self, home_account_id: str) -> None:
+        with self._lock:
+            for a in self._app.get_accounts():
+                if a.get("home_account_id") == home_account_id:
+                    self._app.remove_account(a)
+            _save_cache(self._cache)
+
+    def _accounts(self) -> list:
+        with self._lock:
+            return self._app.get_accounts()
+
+    def get_token_for(self, key: str) -> str:
+        """Stable per-key assignment: the same key (e.g. a virtual-user id) always
+        maps to the same pooled account, so one session keeps one identity throughout."""
+        accounts = self._accounts()
+        if not accounts:
+            raise RuntimeError("No accounts in the pool yet. Add at least one via the wizard.")
+        account = accounts[hash(key) % len(accounts)]
+        result = self._app.acquire_token_silent(SCOPE, account=account)
+        if not result or "access_token" not in result:
+            raise RuntimeError(
+                f"Silent refresh failed for {account.get('username')}; re-add this "
+                f"account via the wizard.")
+        return result["access_token"]
+
+    def get_token(self) -> str:
+        """Fallback for callers with no per-session key: round-robin on every call."""
+        accounts = self._accounts()
+        if not accounts:
+            raise RuntimeError("No accounts in the pool yet. Add at least one via the wizard.")
+        with self._lock:
+            account = accounts[self._rr_idx % len(accounts)]
+            self._rr_idx += 1
+        result = self._app.acquire_token_silent(SCOPE, account=account)
+        if not result or "access_token" not in result:
+            raise RuntimeError(f"Silent refresh failed for {account.get('username')}")
+        return result["access_token"]
+
+
 def build_provider(cfg: dict) -> TokenProvider:
     """Factory from config dict. mode: static | devicecode | ropc."""
     mode = cfg.get("auth_mode", "devicecode").lower()

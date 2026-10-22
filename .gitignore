@@ -1,5 +1,5 @@
 # Secrets & local auth
-.token_cache.bin
+*token_cache*.bin
 config.json
 *.env
 .env
@@ -14,6 +14,12 @@ capture/
 *.log
 server.err
 rra.json
+_*.json
+
+# Node (used only for one-off HTML/JS syntax-checking via acorn, not a real dependency)
+node_modules/
+package.json
+package-lock.json
 
 # Python
 __pycache__/

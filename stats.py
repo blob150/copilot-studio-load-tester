@@ -29,6 +29,9 @@ class StatsAggregator:
         self.tool_calls = 0
         self.knowledge_hits = 0
         self.tool_names = defaultdict(int)
+        self.tool_error_count = 0
+        self.tool_errors_recent = deque(maxlen=20)
+        self.harness_unsupported_count = 0
         self.conversation_ids = []
         self.by_status = defaultdict(int)
         self.by_kind = defaultdict(lambda: {"count": 0, "ok": 0, "latencies": []})
@@ -38,7 +41,9 @@ class StatsAggregator:
                                                    "latencies": []})
         self.recent = deque(maxlen=50)   # recent events for the live feed
         self._seen_convs = set()
+        self._seen_users = set()
         self.active_sessions = 0
+        self.peak_active_sessions = 0
         self.phase = "idle"
         self.running = False
 
@@ -61,10 +66,14 @@ class StatsAggregator:
     def set_active(self, n: int):
         with self._lock:
             self.active_sessions = n
+            if n > self.peak_active_sessions:
+                self.peak_active_sessions = n
 
     def inc_active(self, delta: int):
         with self._lock:
             self.active_sessions = max(0, self.active_sessions + delta)
+            if self.active_sessions > self.peak_active_sessions:
+                self.peak_active_sessions = self.active_sessions
 
     # ---- recording --------------------------------------------------------
     def record(self, kind: str, result):
@@ -89,9 +98,18 @@ class StatsAggregator:
             self.knowledge_hits += getattr(result, "knowledge_hits", 0)
             for tn, cnt in (getattr(result, "tools", None) or {}).items():
                 self.tool_names[tn] += cnt
+            if getattr(result, "tool_error", False):
+                self.tool_error_count += 1
+                for te in (getattr(result, "tool_errors", None) or []):
+                    self.tool_errors_recent.appendleft({
+                        "t": round(now - (self.start_ts or now), 1), **te})
+            if getattr(result, "harness_unsupported", False):
+                self.harness_unsupported_count += 1
             if result.conversation_id and result.conversation_id not in self._seen_convs:
                 self._seen_convs.add(result.conversation_id)
                 self.conversation_ids.append(result.conversation_id)
+            if getattr(result, "user_id", None):
+                self._seen_users.add(result.user_id)
 
             k = self.by_kind[kind]
             k["count"] += 1
@@ -121,6 +139,22 @@ class StatsAggregator:
                 "ok": result.ok,
                 "error": (result.error or "")[:160],
             })
+
+    # ---- harness inference --------------------------------------------------
+    def _harness_guess(self) -> str:
+        """Best-effort label, NOT a confirmed harness identification. The D2E stream
+        gives no explicit 'this agent is harness X' signal. We can only positively
+        detect the one case observed empirically: a GitHub Copilot harness agent
+        rejecting this endpoint outright with a canned refusal message. Absent that
+        signal, we cannot distinguish standard harness from any other -- this is an
+        inference, and the UI should present it as such."""
+        if self.total == 0:
+            return "unknown"
+        if self.harness_unsupported_count > 0:
+            if self.harness_unsupported_count == self.total:
+                return "GitHub Copilot harness (rejected D2E)"
+            return "Mixed / partial rejection"
+        return "Standard (assumed)"
 
     # ---- snapshot ---------------------------------------------------------
     def snapshot(self) -> dict:
@@ -164,6 +198,7 @@ class StatsAggregator:
                 "phase": self.phase,
                 "elapsed": round(elapsed, 1),
                 "active_sessions": self.active_sessions,
+                "peak_active_sessions": self.peak_active_sessions,
                 "total": self.total,
                 "ok": self.ok,
                 "errors": self.errors,
@@ -178,8 +213,13 @@ class StatsAggregator:
                 "tool_calls": self.tool_calls,
                 "knowledge_hits": self.knowledge_hits,
                 "tool_names": dict(self.tool_names),
+                "tool_error_count": self.tool_error_count,
+                "tool_errors_recent": list(self.tool_errors_recent),
+                "harness_unsupported_count": self.harness_unsupported_count,
+                "harness_guess": self._harness_guess(),
                 "conversation_count": len(self.conversation_ids),
                 "conversation_ids": list(self.conversation_ids),
+                "unique_user_count": len(self._seen_users),
                 "series": series,
                 "recent": list(self.recent),
             }

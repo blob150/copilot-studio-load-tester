@@ -46,6 +46,15 @@
   .banner{background:#20303f;border:1px solid var(--accent);border-radius:8px;padding:12px;
     margin-bottom:14px;font-size:13px}
   .banner a{color:var(--accent)} .banner code{font-size:16px;font-weight:700;color:#fff}
+  .devcode-box{background:#20303f;border:2px solid var(--accent);border-radius:8px;
+    padding:14px;margin:8px 0;font-size:14px}
+  .devcode-box .lbl{color:var(--muted);font-size:12px;margin-bottom:6px}
+  .devcode-row{display:flex;align-items:center;gap:10px;margin-top:6px}
+  .devcode-code{font-size:24px;font-weight:700;letter-spacing:.08em;color:#fff;
+    background:#0f1115;border:1px solid var(--line);border-radius:6px;padding:8px 14px;
+    font-family:Consolas,monospace;user-select:all}
+  .devcode-copy{width:auto;margin:0;padding:8px 14px;font-size:13px;flex-shrink:0}
+  .devcode-copy.copied{background:var(--ok)}
   .muted{color:var(--muted)} .mt{margin-top:16px}
   .hist td{font-size:12px}
   .credits{font-size:11px}
@@ -64,6 +73,7 @@
 <div class="tabs" style="padding:0 18px">
   <div class="tab active" data-tab="live">Live Test</div>
   <div class="tab" data-tab="history">Run History</div>
+  <div class="tab" data-tab="accounts">Accounts</div>
 </div>
 
 <!-- LIVE TAB -->
@@ -96,7 +106,8 @@
 
     <label>Auth mode</label>
     <select id="auth_mode">
-      <option value="devicecode">Device code (cached)</option>
+      <option value="devicecode">Device code (single account, cached)</option>
+      <option value="pool">Account pool (multi-account wizard)</option>
       <option value="static">Static bearer token</option>
     </select>
     <div class="row" id="aadRow">
@@ -107,11 +118,28 @@
     <button class="btn" id="authBtn" style="background:var(--panel2);color:var(--ink);border:1px solid var(--line)">Authenticate now</button>
     <div id="authState" class="muted" style="font-size:12px;margin-top:6px"></div>
 
+    <div id="poolWizard" style="display:none;margin-top:10px;border:1px dashed var(--line);border-radius:8px;padding:10px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+        Account pool: click <b>Add account</b> once per test identity. Each click opens a
+        fresh device-code sign-in; use a private/incognito window if your browser is
+        already signed in, so you add a genuinely different account.
+      </div>
+      <button class="btn" style="margin:0 0 8px" id="poolAddBtn">+ Add account</button>
+      <div id="poolAddState" class="muted" style="font-size:12px;margin-bottom:8px"></div>
+      <table style="font-size:12px"><tbody id="poolAccounts"></tbody></table>
+    </div>
+
     <label>Load mode</label>
     <select id="mode">
+      <option value="smoke">Smoke test (handful of sessions)</option>
       <option value="spike">Event spike (ramp/hold/down)</option>
       <option value="stepped">Stepped RPM (characterization)</option>
     </select>
+
+    <div id="smokeCfg" style="display:none">
+      <label>Sessions to run</label><input id="smoke_sessions" type="number" value="3">
+      <p class="muted" style="font-size:11px">Fires this many sessions concurrently, once, then stops — a quick end-to-end check of auth/endpoint/prompts before committing to a real load run.</p>
+    </div>
 
     <div id="spikeCfg">
       <div class="row">
@@ -154,6 +182,7 @@ What are the steps to file an incident report?</textarea>
 
   <div>
     <div id="deviceBanner" class="banner" style="display:none"></div>
+    <div id="harnessBanner" class="banner" style="display:none;border-color:var(--err);background:#3a1f1f"></div>
     <div class="kpis">
       <div class="kpi"><div class="v" id="k_total">0</div><div class="l">Requests</div></div>
       <div class="kpi ok"><div class="v" id="k_success">0%</div><div class="l">Success</div></div>
@@ -165,6 +194,7 @@ What are the steps to file an incident report?</textarea>
       <div class="kpi"><div class="v" id="k_p95">0</div><div class="l">p95 ms</div></div>
       <div class="kpi"><div class="v" id="k_tools">0</div><div class="l">Tool calls (live)</div></div>
       <div class="kpi"><div class="v" id="k_know">0</div><div class="l">Knowledge hits</div></div>
+      <div class="kpi warn"><div class="v" id="k_toolerr">0</div><div class="l">Tool errors (downstream)</div></div>
     </div>
 
     <div class="grid2">
@@ -182,6 +212,13 @@ What are the steps to file an incident report?</textarea>
     <div class="panel mt"><h2>By tool invoked (live, best-effort)</h2>
       <table id="toolTbl"><thead><tr><th>Tool</th><th>Invocations</th></tr></thead><tbody></tbody></table>
       <p class="muted" style="font-size:11px">Parsed live from the agent's plan events. Authoritative counts come from transcript enrichment in Run History.</p>
+    </div>
+
+    <div class="panel mt"><h2>Embedded tool / connector errors (downstream failures)</h2>
+      <p class="muted" style="font-size:11px">Detects failures from services like Azure AI Search or connectors that occur
+        INSIDE a tool call even when the overall HTTP response is 200 OK (the agent gracefully
+        degrades). Scans each tool's result payload for error-shaped fields.</p>
+      <table id="toolErrTbl"><thead><tr><th>At</th><th>Tool</th><th>Field</th><th>Detail</th></tr></thead><tbody></tbody></table>
     </div>
 
     <div class="panel mt"><h2>Recent events</h2><div class="feed" id="feed"></div></div>
@@ -202,21 +239,80 @@ What are the steps to file an incident report?</textarea>
     </div>
   </div>
   <div class="panel mt">
-    <h2>Run History</h2>
+    <h2 style="display:flex;align-items:center;justify-content:space-between">
+      <span>Run History</span>
+      <button class="btn" style="width:auto;margin:0;padding:6px 12px;font-size:12px"
+        onclick="window.location.href='/api/runs/export.csv'">Export all (CSV)</button>
+    </h2>
     <table class="hist"><thead><tr>
-      <th>When</th><th>Label</th><th>Schema</th><th>Status</th>
+      <th>When</th><th>Label</th><th>Schema</th><th>Mode</th><th>Harness (inferred)</th><th>Status</th>
+      <th>Target conc.</th><th>Peak conc.</th><th>Sessions</th><th>Duration</th>
       <th>Reqs</th><th>Success</th><th>Throttled</th><th>p95</th>
       <th>Tools (live)</th><th>Tools (transcript)</th><th>Credits (MCS)</th><th></th>
     </tr></thead><tbody id="histBody"></tbody></table>
     <p class="muted mt">Credit/consumption data aggregates daily and may take hours to surface.
       Use “Refresh credits” on a run to re-query allocation & billing state.</p>
   </div>
+
+  <div class="panel mt" id="sessionExplorer" style="display:none">
+    <h2>Session explorer — <span id="sessRunLabel" class="muted" style="text-transform:none;letter-spacing:0"></span></h2>
+    <div class="grid2">
+      <div>
+        <p class="muted" style="font-size:11px;margin:4px 0">Sessions (conversations) in this run — click one to view its transcript</p>
+        <table style="font-size:12px"><thead><tr>
+          <th>Started</th><th>Turns</th><th>Avg latency</th><th>Errors</th><th>Throttled</th><th>Tool errors</th>
+        </tr></thead><tbody id="sessList"></tbody></table>
+      </div>
+      <div>
+        <p class="muted" style="font-size:11px;margin:4px 0" id="sessTranscriptLabel">Select a session to view its transcript</p>
+        <div class="feed" id="sessTranscript" style="max-height:420px"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
+<!-- ACCOUNTS TAB -->
+<div style="padding:0 18px;display:none" id="tab-accounts">
+  <div class="panel mt">
+    <h2>Authenticated accounts (pool)</h2>
+    <p class="muted" style="font-size:12px">Accounts added via the Account pool wizard
+      (Live Test → Auth mode → Account pool), or right here. Token status refreshes each
+      time this tab loads — MSAL silently renews the access token using its refresh
+      token as needed, so “valid” usually means you're good to go without re-signing-in.</p>
+    <div class="row" style="margin-bottom:10px">
+      <div><label>Tenant ID</label><input id="acctTenant"></div>
+      <div><label>Client ID</label><input id="acctClient"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:6px">
+      <button class="btn" style="margin:0" id="acctAddBtn">+ Add account</button>
+      <button class="btn" style="margin:0;background:var(--panel2);color:var(--ink);border:1px solid var(--line)" id="acctRefreshBtn">Refresh status</button>
+    </div>
+    <div id="acctAddState" class="muted" style="font-size:12px;margin-bottom:10px"></div>
+    <table><thead><tr>
+      <th>Username</th><th>Status</th><th>Token expires</th><th>Time remaining</th><th></th>
+    </tr></thead><tbody id="acctBody"></tbody></table>
+  </div>
+</div>
 
 <script>
 const $ = id => document.getElementById(id);
 let polling = null;
+
+// --- shared tenant/client identity: persisted so every tab/reload stays in sync,
+// instead of a fragile one-time copy between tabs at the moment you switch. ---
+function saveAuthIds(){
+  const t = $('tenant_id').value.trim(), c = $('client_id').value.trim();
+  if(t) localStorage.setItem('lastTenantId', t);
+  if(c) localStorage.setItem('lastClientId', c);
+}
+function loadAuthIds(){
+  const t = localStorage.getItem('lastTenantId'), c = localStorage.getItem('lastClientId');
+  if(t && !$('tenant_id').value) $('tenant_id').value = t;
+  if(c && !$('client_id').value) $('client_id').value = c;
+}
+$('tenant_id').addEventListener('change', saveAuthIds);
+$('client_id').addEventListener('change', saveAuthIds);
+loadAuthIds();
 
 // tabs
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
@@ -225,8 +321,54 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   const tab = t.dataset.tab;
   $('tab-live').style.display = tab==='live'?'grid':'none';
   $('tab-history').style.display = tab==='history'?'block':'none';
+  $('tab-accounts').style.display = tab==='accounts'?'block':'none';
   if(tab==='history'){ loadHistory(); loadTrend(); }
+  if(tab==='accounts'){
+    // Prefer whatever is live in the Live Test panel; fall back to the last
+    // persisted values so the Accounts tab never silently shows "no accounts"
+    // just because those fields happened to be blank at this exact moment.
+    $('acctTenant').value = $('tenant_id').value || localStorage.getItem('lastTenantId') || '';
+    $('acctClient').value = $('client_id').value || localStorage.getItem('lastClientId') || '';
+    loadAccountsTab();
+  }
 });
+
+function fmtRemaining(sec){
+  if(sec==null) return '—';
+  if(sec<=0) return 'expired';
+  const m = Math.floor(sec/60), s = sec%60;
+  return m>0 ? `${m}m ${s}s` : `${s}s`;
+}
+async function loadAccountsTab(){
+  const tenant = $('acctTenant').value.trim(), client = $('acctClient').value.trim();
+  if(tenant) localStorage.setItem('lastTenantId', tenant);
+  if(client) localStorage.setItem('lastClientId', client);
+  if(!tenant || !client){
+    $('acctBody').innerHTML = '<tr><td colspan="5" class="muted">Enter Tenant ID and Client ID (or add an account from Live Test) to see the pool.</td></tr>';
+    return;
+  }
+  const r = await fetch('/api/pool/accounts?tenant_id='+encodeURIComponent(tenant)+'&client_id='+encodeURIComponent(client));
+  const accounts = await r.json();
+  $('acctBody').innerHTML = accounts.map(a=>{
+    const cls = a.status==='valid' ? 's2' : (a.status==='expired' ? 's4' : 's5');
+    return `<tr>
+      <td>${a.username||''}</td>
+      <td><span class="pill ${cls}">${a.status}</span></td>
+      <td>${a.expires_iso||'—'}</td>
+      <td>${fmtRemaining(a.seconds_remaining)}</td>
+      <td><button onclick="removeAccount('${a.home_account_id}')">Remove</button></td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="5" class="muted">No accounts in the pool yet. If you expected one to be here, check that Tenant ID / Client ID above exactly match what was used to authenticate.</td></tr>';
+}
+async function removeAccount(haid){
+  if(!confirm('Remove this account from the pool?')) return;
+  await fetch('/api/pool/remove',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({home_account_id:haid})});
+  loadAccountsTab();
+}
+$('acctRefreshBtn').onclick = loadAccountsTab;
+$('acctTenant').addEventListener('change', loadAccountsTab);
+$('acctClient').addEventListener('change', loadAccountsTab);
 
 // url parse (live as you paste/edit)
 async function parseUrl(){
@@ -239,15 +381,100 @@ async function parseUrl(){
 $('url').addEventListener('input', parseUrl);
 $('url').addEventListener('blur', parseUrl);
 $('auth_mode').onchange = e => {
-  const s = e.target.value==='static';
+  const mode = e.target.value;
+  const s = mode==='static';
   $('tokRow').style.display = s?'block':'none';
   $('aadRow').style.display = s?'none':'grid';
+  $('poolWizard').style.display = mode==='pool'?'block':'none';
+  $('authBtn').style.display = mode==='pool'?'none':'block';
+  if(mode==='pool') refreshPoolAccounts();
 };
+function fallbackCopy(text, onSuccess){
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand('copy'); onSuccess(); } catch(e) { /* give up quietly */ }
+  document.body.removeChild(ta);
+}
+async function startAddAccount(tenantId, clientId, statusElId, onDone){
+  const statusEl = $(statusElId);
+  if(!tenantId || !clientId){ alert('Enter Tenant ID and Client ID first.'); return; }
+  statusEl.textContent = 'Starting sign-in…';
+  let lastRenderedCode = null;
+  await fetch('/api/pool/add',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({tenant_id:tenantId, client_id:clientId})});
+  const poll = setInterval(async () => {
+    const r = await fetch('/api/pool/status'); const s = await r.json();
+    if(s.status==='pending' && s.user_code){
+      // Only (re)build the box when the code actually changes -- otherwise this
+      // 1.5s poll wipes out the "Copy code" button's transient "✓ Copied" state
+      // (and any other interaction) every cycle while waiting for sign-in.
+      if(s.user_code === lastRenderedCode) return;
+      lastRenderedCode = s.user_code;
+      statusEl.innerHTML = `
+        <div class="devcode-box">
+          <div class="lbl">Open this link to sign in, then enter the code below (use a private/incognito window for a different account):</div>
+          <div><a href="${s.verification_uri}" target="_blank">${s.verification_uri}</a></div>
+          <div class="devcode-row">
+            <span class="devcode-code" id="${statusElId}_code">${s.user_code}</span>
+            <button type="button" class="btn devcode-copy" id="${statusElId}_copybtn">Copy code</button>
+          </div>
+        </div>`;
+      const copyBtn = document.getElementById(statusElId+'_copybtn');
+      if(copyBtn){
+        copyBtn.onclick = () => {
+          const resetLabel = () => {
+            copyBtn.textContent = 'Copy code'; copyBtn.classList.remove('copied');
+          };
+          const showCopied = () => {
+            copyBtn.textContent = '✓ Copied';
+            copyBtn.classList.add('copied');
+            setTimeout(resetLabel, 2000);
+          };
+          if(navigator.clipboard && navigator.clipboard.writeText){
+            navigator.clipboard.writeText(s.user_code).then(showCopied).catch(() => {
+              // Clipboard API can silently fail (no focus/permission) -- fall back
+              // to a classic execCommand copy via a temporary textarea.
+              fallbackCopy(s.user_code, showCopied);
+            });
+          } else {
+            fallbackCopy(s.user_code, showCopied);
+          }
+        };
+      }
+    }
+    if(s.status==='done'){
+      statusEl.textContent = '✓ Added '+(s.username||'account');
+      clearInterval(poll); onDone();
+    }
+    if(s.status==='error'){
+      statusEl.textContent = '✗ '+(s.error||'failed');
+      clearInterval(poll);
+    }
+  }, 1500);
+}
+$('poolAddBtn').onclick = () => startAddAccount(
+  $('tenant_id').value, $('client_id').value, 'poolAddState', refreshPoolAccounts);
+$('acctAddBtn').onclick = () => startAddAccount(
+  $('acctTenant').value, $('acctClient').value, 'acctAddState', loadAccountsTab);
+async function refreshPoolAccounts(){
+  const tenant_id = $('tenant_id').value, client_id = $('client_id').value;
+  if(!tenant_id || !client_id) return;
+  const r = await fetch('/api/pool/accounts?tenant_id='+encodeURIComponent(tenant_id)+'&client_id='+encodeURIComponent(client_id));
+  const accounts = await r.json();
+  $('poolAccounts').innerHTML = accounts.map(a=>
+    `<tr><td>${a.username||''}</td><td class="muted">${a.status} · ${fmtRemaining(a.seconds_remaining)}</td></tr>`
+  ).join('') || '<tr><td class="muted">No accounts added yet.</td></tr>';
+}
 $('mode').onchange = e => {
-  const st = e.target.value==='stepped';
-  $('stepCfg').style.display = st?'block':'none';
-  $('spikeCfg').style.display = st?'none':'block';
+  const m = e.target.value;
+  $('smokeCfg').style.display = m==='smoke'?'block':'none';
+  $('stepCfg').style.display = m==='stepped'?'block':'none';
+  $('spikeCfg').style.display = m==='spike'?'block':'none';
 };
+$('mode').dispatchEvent(new Event('change'));
 
 function cfg(){
   return {
@@ -255,7 +482,7 @@ function cfg(){
     environment_id:$('environment_id').value, org_url:$('org_url').value,
     auth_mode:$('auth_mode').value, tenant_id:$('tenant_id').value,
     client_id:$('client_id').value, static_token:$('static_token').value,
-    mode:$('mode').value,
+    mode:$('mode').value, smoke_sessions:+$('smoke_sessions').value,
     virtual_users:+$('virtual_users').value, sessions_per_vu:+$('sessions_per_vu').value,
     rampup_seconds:+$('rampup_seconds').value, hold_seconds:+$('hold_seconds').value,
     rampdown_seconds:+$('rampdown_seconds').value,
@@ -276,6 +503,7 @@ function applyConfig(c){
   if(c.auth_mode){ $('auth_mode').value = c.auth_mode; $('auth_mode').dispatchEvent(new Event('change')); }
   set('tenant_id', c.tenant_id); set('client_id', c.client_id); set('static_token', c.static_token);
   if(c.mode){ $('mode').value = c.mode; $('mode').dispatchEvent(new Event('change')); }
+  set('smoke_sessions', c.smoke_sessions);
   set('virtual_users', c.virtual_users); set('sessions_per_vu', c.sessions_per_vu);
   set('rampup_seconds', c.rampup_seconds); set('hold_seconds', c.hold_seconds);
   set('rampdown_seconds', c.rampdown_seconds);
@@ -319,6 +547,7 @@ $('deletePresetBtn').onclick = async () => {
 loadPresets();
 
 $('authBtn').onclick = async () => {
+  saveAuthIds();
   $('authState').textContent = 'Starting sign-in…';
   await fetch('/api/authenticate',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(cfg())});
@@ -333,6 +562,7 @@ $('authBtn').onclick = async () => {
 };
 
 $('startBtn').onclick = async () => {
+  saveAuthIds();
   const r = await fetch('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(cfg())});
   const d = await r.json();
@@ -357,11 +587,23 @@ async function poll(){
   $('k_active').textContent=s.active_sessions; $('k_rpm').textContent=s.achieved_rpm;
   $('k_p50').textContent=s.p50; $('k_p95').textContent=s.p95;
   $('k_tools').textContent=s.tool_calls||0; $('k_know').textContent=s.knowledge_hits||0;
+  $('k_toolerr').textContent=s.tool_error_count||0;
+  if(s.harness_unsupported_count>0){
+    $('harnessBanner').style.display='block';
+    $('harnessBanner').innerHTML = `⚠ This agent rejected ${s.harness_unsupported_count} of ${s.total} requests with `+
+      `"doesn't support agents built with the GitHub Copilot harness" — no real conversation is happening. `+
+      `Results from this run are not meaningful load-test data. The D2E endpoint used by this tool does not `+
+      `support GitHub Copilot harness agents.`;
+  } else { $('harnessBanner').style.display='none'; }
   const ttb=$('toolTbl').querySelector('tbody'); ttb.innerHTML='';
   Object.entries(s.tool_names||{}).sort((a,b)=>b[1]-a[1]).forEach(([k,v])=>{
     ttb.innerHTML+=`<tr><td>${k}</td><td>${v}</td></tr>`;
   });
   if(!Object.keys(s.tool_names||{}).length) ttb.innerHTML='<tr><td class="muted" colspan="2">No tool calls detected yet.</td></tr>';
+  const tetb=$('toolErrTbl').querySelector('tbody');
+  tetb.innerHTML=(s.tool_errors_recent||[]).map(e=>
+    `<tr><td class="muted">${e.t}s</td><td>${e.tool||''}</td><td class="muted">${e.path||''}</td><td>${JSON.stringify(e.detail).slice(0,200)}</td></tr>`
+  ).join('') || '<tr><td class="muted" colspan="4">No embedded tool/connector errors detected.</td></tr>';
   // status table
   const stb=$('statusTbl').querySelector('tbody'); stb.innerHTML='';
   Object.entries(s.by_status||{}).sort().forEach(([k,v])=>{
@@ -432,32 +674,141 @@ async function loadHistory(){
     const liveTools = lt.tool_calls!=null?lt.tool_calls:'';
     const liveKnow = lt.knowledge_hits!=null?lt.knowledge_hits:'';
     const transTools = te.status==='ok'?te.tool_calls:(te.status?te.status:'—');
+    const harness = lt.harness_guess || sm.harness_guess || 'unknown';
+    const harnessCls = harness.includes('rejected') ? 'color:var(--err)'
+      : (harness==='unknown' ? 'color:var(--muted)' : '');
+    const harnessTitle = harness.includes('rejected')
+      ? 'This agent rejected the D2E endpoint outright (HTTP 200 + canned refusal). '+
+        'No real conversation occurred -- treat this run\'s results as invalid.'
+      : 'Inferred, not confirmed: the stream gives no explicit harness identifier. '+
+        'We only positively detect the GitHub Copilot harness rejection case.';
+    const cfg = r.config||{};
+    const mode = cfg.mode || '—';
+    const targetConc = mode==='smoke' ? cfg.smoke_sessions
+      : mode==='stepped' ? cfg.max_concurrency
+      : cfg.virtual_users;
+    const peakConc = sm.peak_active_sessions ?? '';
+    const sessions = sm.conversation_count ?? '';
+    let duration = '—';
+    if(r.created!=null && r.ended!=null){
+      const secs = Math.round(r.ended - r.created);
+      duration = secs<60 ? `${secs}s` : `${Math.floor(secs/60)}m ${secs%60}s`;
+    }
     return `<tr>
       <td>${r.created_iso||''}</td><td>${r.label||''}</td><td>${r.schema||''}</td>
-      <td>${r.status||''}</td><td>${sm.total??''}</td>
+      <td>${mode}</td>
+      <td style="${harnessCls}" title="${harnessTitle}">${harness}</td>
+      <td>${r.status||''}</td>
+      <td title="Configured/requested concurrency (meaning depends on load mode)">${targetConc??''}</td>
+      <td title="Highest simultaneous active sessions actually observed during the run">${peakConc}</td>
+      <td title="Distinct conversations/sessions in this run">${sessions}</td>
+      <td>${duration}</td>
+      <td>${sm.total??''}</td>
       <td>${sm.success_rate!=null?sm.success_rate+'%':''}</td>
       <td>${sm.throttled??''}</td><td>${sm.p95??''}</td>
       <td>${liveTools} tools / ${liveKnow} know.</td><td class="credits">${transTools}</td>
       <td class="credits" title="${credTitle}">${credTxt}</td>
       <td>
-        <button onclick="refreshCredits('${r.id}')">Refresh credits</button>
-        <button onclick="enrichTools('${r.id}')">Enrich tools</button>
+        <button onclick="refreshCredits('${r.id}', this)">Refresh credits</button>
+        <button onclick="enrichTools('${r.id}', this)">Enrich tools</button>
+        <button onclick="openSessionExplorer('${r.id}','${(r.label||'').replace(/'/g,"\\'")}')">Sessions</button>
+        <button onclick="window.location.href='/api/runs/${r.id}/export.csv'">Export</button>
       </td>
     </tr>`;
-  }).join('') || '<tr><td colspan="12" class="muted">No runs yet.</td></tr>';
+  }).join('') || '<tr><td colspan="18" class="muted">No runs yet.</td></tr>';
 }
-async function refreshCredits(id){
-  await fetch('/api/runs/'+id+'/credits',{method:'POST'}); loadHistory();
+async function refreshCredits(id, btn){
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  try {
+    const r = await fetch('/api/runs/'+id+'/credits',{method:'POST'});
+    const d = await r.json();
+    if(d.error || d.status==='error'){
+      btn.textContent = '✗ Failed';
+      btn.title = d.error || d.note || 'Check failed';
+    } else {
+      btn.textContent = '✓ Updated';
+      btn.title = d.note || '';
+    }
+  } catch(e) {
+    btn.textContent = '✗ Failed';
+    btn.title = String(e);
+  }
+  setTimeout(() => { loadHistory(); }, 1200);
 }
-async function enrichTools(id){
-  const r = await fetch('/api/runs/'+id+'/enrich',{method:'POST',
-    headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
-  const d = await r.json();
-  if(d.error){ alert(d.error); } else { alert('Enrichment: '+(d.status||'')+
-    '\nchecked conversations: '+(d.checked_convs||0)+
-    '\ntool calls: '+(d.tool_calls||0)+'  connector: '+(d.connector_calls||0)+
-    '\n'+(d.note||'')); }
-  loadHistory();
+async function enrichTools(id, btn){
+  let orgUrl = localStorage.getItem('dataverseOrgUrl') || '';
+  orgUrl = prompt('Dataverse org URL for this environment (e.g. https://orgxxxx.crm.dynamics.com):', orgUrl);
+  if(orgUrl === null) return;  // cancelled
+  orgUrl = orgUrl.trim();
+  if(!orgUrl){ alert('Org URL is required to query conversation transcripts.'); return; }
+  localStorage.setItem('dataverseOrgUrl', orgUrl);
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Enriching…';
+  let d = {};
+  try {
+    const r = await fetch('/api/runs/'+id+'/enrich',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify({org_url:orgUrl})});
+    d = await r.json();
+  } catch(e) {
+    d = {error: String(e)};
+  }
+  if(d.error){
+    btn.textContent = '✗ Failed';
+    btn.title = d.error;
+  } else {
+    btn.textContent = '✓ Done';
+    btn.title = `status=${d.status||''}; checked ${d.checked_convs||0} conversations; `+
+      `tool calls=${d.tool_calls||0}, connector=${d.connector_calls||0}. ${d.note||''}`;
+  }
+  setTimeout(() => { loadHistory(); }, 1500);
+}
+
+let currentSessionRunId = null;
+async function openSessionExplorer(runId, label){
+  currentSessionRunId = runId;
+  $('sessionExplorer').style.display = 'block';
+  $('sessRunLabel').textContent = label || runId;
+  $('sessTranscript').innerHTML = '';
+  $('sessTranscriptLabel').textContent = 'Select a session to view its transcript';
+  const r = await fetch('/api/runs/'+runId+'/sessions');
+  const sessions = await r.json();
+  $('sessList').innerHTML = sessions.map(s => `<tr style="cursor:pointer" onclick="loadSessionTranscript('${runId}','${s.conversation_id}')">
+      <td>${s.first_iso||''}</td><td>${s.turns}</td><td>${s.avg_latency_ms}ms</td>
+      <td>${s.errors}</td><td>${s.throttled}</td>
+      <td>${s.tool_errors ? `<span style="color:var(--warn)">${s.tool_errors}</span>` : 0}</td>
+    </tr>`).join('') || '<tr><td colspan="6" class="muted">No sessions recorded for this run.</td></tr>';
+  $('sessionExplorer').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+async function loadSessionTranscript(runId, conversationId){
+  $('sessTranscriptLabel').textContent = 'Loading…';
+  const r = await fetch('/api/runs/'+runId+'/sessions/'+conversationId);
+  const turns = await r.json();
+  $('sessTranscriptLabel').textContent = `Transcript — ${conversationId}`;
+  $('sessTranscript').innerHTML = turns.map(t => {
+    const parts = [];
+    if(t.kind==='start'){
+      parts.push(`<div class="r"><span class="muted">${t.ts_iso}</span><b>session started</b>
+        <span class="muted">${Math.round(t.latency_ms)}ms</span></div>`);
+      if(t.response) parts.push(`<div class="r" style="padding-left:16px"><i>bot:</i> ${t.response}</div>`);
+    } else {
+      if(t.prompt) parts.push(`<div class="r" style="padding-left:0"><b>user:</b> ${t.prompt}</div>`);
+      const errTag = t.ok ? '' : ` <span style="color:var(--err)">[${t.error||'error'}]</span>`;
+      const thrTag = t.throttled ? ' <span style="color:var(--warn)">[throttled]</span>' : '';
+      parts.push(`<div class="r" style="padding-left:16px"><i>bot:</i> ${t.response||'(no response)'}
+        <span class="muted">· ${Math.round(t.latency_ms)}ms · ${t.ts_iso}</span>${errTag}${thrTag}</div>`);
+      if(t.tool_calls) parts.push(`<div class="r muted" style="padding-left:16px">tool calls: ${t.tool_calls}, knowledge hits: ${t.knowledge_hits}</div>`);
+      if(t.tool_error && t.tool_errors && t.tool_errors.length){
+        t.tool_errors.forEach(te => {
+          parts.push(`<div class="r" style="padding-left:16px;color:var(--warn)">⚠ downstream tool error — ${te.tool} (${te.path}): ${JSON.stringify(te.detail).slice(0,300)}</div>`);
+        });
+      }
+    }
+    return parts.join('');
+  }).join('<div style="border-top:1px solid var(--line);margin:4px 0"></div>') ||
+    '<div class="muted">No turns recorded for this session.</div>';
 }
 </script>
 </body>

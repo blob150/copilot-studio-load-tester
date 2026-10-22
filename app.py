@@ -4,16 +4,18 @@ Local-only. Sits on top of token_provider + d2e_client + engine + stats + run_st
 """
 from __future__ import annotations
 
+import csv
+import io
 import re
 import threading
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 
 import credits as credits_mod
 import run_store
 from engine import LoadEngine
 from stats import StatsAggregator
-from token_provider import DeviceCodeProvider, StaticTokenProvider
+from token_provider import AccountPoolManager, DeviceCodeProvider, StaticTokenProvider
 
 app = Flask(__name__)
 
@@ -27,6 +29,7 @@ _state = {
     "provider": None,
     "auth_status": "none",   # none | pending | signed_in | error
     "auth_user": None,
+    "pool_manager": None,    # AccountPoolManager (lazily created, keyed by tenant+client)
 }
 _lock = threading.Lock()
 
@@ -47,6 +50,8 @@ def build_provider(cfg: dict):
     mode = cfg.get("auth_mode", "devicecode")
     if mode == "static":
         return StaticTokenProvider(cfg["static_token"])
+    if mode == "pool":
+        return _get_pool_manager(cfg["tenant_id"], cfg["client_id"])
 
     def prompt(flow):
         with _lock:
@@ -54,6 +59,58 @@ def build_provider(cfg: dict):
                                        "url": flow.get("verification_uri"),
                                        "code": flow.get("user_code")}
     return DeviceCodeProvider(cfg["tenant_id"], cfg["client_id"], prompt=prompt)
+
+
+def _get_pool_manager(tenant_id: str, client_id: str) -> AccountPoolManager:
+    with _lock:
+        pm = _state.get("pool_manager")
+        if pm is None or pm.tenant_id != tenant_id or pm.client_id != client_id:
+            pm = AccountPoolManager(tenant_id, client_id)
+            _state["pool_manager"] = pm
+        return pm
+
+
+@app.route("/api/pool/add", methods=["POST"])
+def api_pool_add():
+    """Wizard step: launch one more interactive device-code sign-in for the pool."""
+    body = request.json or {}
+    tenant_id, client_id = body.get("tenant_id"), body.get("client_id")
+    if not tenant_id or not client_id:
+        return jsonify({"error": "tenant_id and client_id are required"}), 400
+    pm = _get_pool_manager(tenant_id, client_id)
+    flow = pm.begin_add_account()
+    return jsonify(flow)
+
+
+@app.route("/api/pool/status")
+def api_pool_status():
+    with _lock:
+        pm = _state.get("pool_manager")
+    if not pm:
+        return jsonify({"status": "none"})
+    return jsonify(pm.pending_status())
+
+
+@app.route("/api/pool/accounts")
+def api_pool_accounts():
+    tenant_id = request.args.get("tenant_id")
+    client_id = request.args.get("client_id")
+    if tenant_id and client_id:
+        pm = _get_pool_manager(tenant_id, client_id)
+    else:
+        with _lock:
+            pm = _state.get("pool_manager")
+    return jsonify(pm.list_accounts() if pm else [])
+
+
+@app.route("/api/pool/remove", methods=["POST"])
+def api_pool_remove():
+    body = request.json or {}
+    with _lock:
+        pm = _state.get("pool_manager")
+    if pm:
+        pm.remove_account(body.get("home_account_id"))
+    return jsonify({"ok": True})
 
 
 @app.route("/api/authenticate", methods=["POST"])
@@ -143,8 +200,11 @@ def api_start():
 
         def runner():
             try:
-                if cfg.get("mode") == "stepped":
+                mode = cfg.get("mode")
+                if mode == "stepped":
                     engine.run_stepped()
+                elif mode == "smoke":
+                    engine.run_smoke()
                 else:
                     engine.run()
             finally:
@@ -231,6 +291,94 @@ def api_run_enrich(run_id):
 def api_run_events(run_id):
     """Full per-request event log for a run (for deep-dive / export)."""
     return jsonify(run_store.get_events(run_id))
+
+
+@app.route("/api/runs/<run_id>/sessions")
+def api_run_sessions(run_id):
+    """One row per conversation/session in this run, for the session picker."""
+    return jsonify(run_store.get_sessions(run_id))
+
+
+@app.route("/api/runs/<run_id>/sessions/<conversation_id>")
+def api_run_session_detail(run_id, conversation_id):
+    """Ordered turn-by-turn transcript (prompt, response, latency) for one session."""
+    return jsonify(run_store.get_session_detail(run_id, conversation_id))
+
+
+def _target_concurrency(cfg: dict) -> str:
+    """Requested/configured concurrency, whose meaning differs by load mode."""
+    mode = cfg.get("mode")
+    if mode == "smoke":
+        return cfg.get("smoke_sessions", "")
+    if mode == "stepped":
+        return cfg.get("max_concurrency", "")
+    return cfg.get("virtual_users", "")  # spike (default)
+
+
+def _duration_seconds(run: dict) -> float | None:
+    created, ended = run.get("created"), run.get("ended")
+    if created is None or ended is None:
+        return None
+    return round(ended - created, 1)
+
+
+@app.route("/api/runs/export.csv")
+def api_runs_export_csv():
+    """Run History summary across all runs, as CSV, for offline analysis."""
+    runs = run_store.list_runs()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([
+        "run_id", "created_iso", "label", "schema", "mode", "status",
+        "target_concurrency", "peak_concurrency", "sessions", "unique_users",
+        "duration_seconds", "total_requests", "success_rate_pct", "throttled",
+        "achieved_rpm", "p50_ms", "p95_ms", "tool_calls", "knowledge_hits",
+        "tool_error_count", "harness_guess",
+        "mcs_messages_consumed", "mcs_messages_allocated",
+    ])
+    for r in runs:
+        cfg = r.get("config") or {}
+        sm = r.get("summary") or {}
+        cr = r.get("credits") or {}
+        w.writerow([
+            r.get("id"), r.get("created_iso"), r.get("label"), r.get("schema"),
+            cfg.get("mode"), r.get("status"),
+            _target_concurrency(cfg), sm.get("peak_active_sessions"),
+            sm.get("conversation_count"), sm.get("unique_user_count"),
+            _duration_seconds(r), sm.get("total"), sm.get("success_rate"),
+            sm.get("throttled"), sm.get("achieved_rpm"), sm.get("p50"), sm.get("p95"),
+            sm.get("tool_calls"), sm.get("knowledge_hits"), sm.get("tool_error_count"),
+            sm.get("harness_guess"),
+            cr.get("mcs_messages_consumed"), cr.get("mcs_messages_allocated"),
+        ])
+    return Response(buf.getvalue(), mimetype="text/csv", headers={
+        "Content-Disposition": "attachment; filename=run_history_summary.csv"})
+
+
+@app.route("/api/runs/<run_id>/export.csv")
+def api_run_export_csv(run_id):
+    """Full per-request event log for one run, as CSV, for deep-dive / offline analysis."""
+    r = run_store.get(run_id)
+    if not r:
+        return jsonify({"error": "not found"}), 404
+    events = run_store.get_events(run_id)
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow([
+        "ts", "kind", "conversation_id", "user_id", "status", "ok", "throttled",
+        "latency_ms", "tool_calls", "knowledge_hits", "tool_error", "error",
+        "prompt", "response",
+    ])
+    for e in events:
+        w.writerow([
+            e.get("ts"), e.get("kind"), e.get("conversation_id"), e.get("user_id"),
+            e.get("status"), e.get("ok"), e.get("throttled"), e.get("latency_ms"),
+            e.get("tool_calls"), e.get("knowledge_hits"), e.get("tool_error"),
+            e.get("error"), e.get("prompt"), e.get("response"),
+        ])
+    label = re.sub(r"[^A-Za-z0-9_-]+", "_", r.get("label") or run_id)
+    return Response(buf.getvalue(), mimetype="text/csv", headers={
+        "Content-Disposition": f"attachment; filename=run_{label}_{run_id}_events.csv"})
 
 
 @app.route("/api/trends")

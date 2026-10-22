@@ -46,7 +46,13 @@ CREATE TABLE IF NOT EXISTS events (
     ok INTEGER,
     error TEXT,
     tool_calls INTEGER,
-    knowledge_hits INTEGER
+    knowledge_hits INTEGER,
+    conversation_id TEXT,
+    user_id TEXT,
+    prompt TEXT,
+    response TEXT,
+    tool_error INTEGER,
+    tool_errors_json TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
 
@@ -75,7 +81,26 @@ def init_db() -> None:
         c = _conn()
         c.executescript(SCHEMA)
         c.commit()
+    _migrate_events_columns()
     _migrate_legacy_json()
+
+
+def _migrate_events_columns() -> None:
+    """Add conversation_id/user_id/prompt/response columns to pre-existing events
+    tables (older DBs created before these were tracked)."""
+    c = _conn()
+    cols = {row["name"] for row in c.execute("PRAGMA table_info(events)").fetchall()}
+    additions = {
+        "conversation_id": "TEXT", "user_id": "TEXT",
+        "prompt": "TEXT", "response": "TEXT",
+        "tool_error": "INTEGER", "tool_errors_json": "TEXT",
+    }
+    with _lock:
+        for name, coltype in additions.items():
+            if name not in cols:
+                c.execute(f"ALTER TABLE events ADD COLUMN {name} {coltype}")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_events_conv ON events(run_id, conversation_id)")
+        c.commit()
 
 
 def _migrate_legacy_json() -> None:
@@ -147,6 +172,8 @@ def finalize(run: dict, summary: dict, status: str = "complete") -> None:
         "tool_calls": summary.get("tool_calls", 0),
         "knowledge_hits": summary.get("knowledge_hits", 0),
         "tool_names": summary.get("tool_names", {}),
+        "tool_error_count": summary.get("tool_error_count", 0),
+        "harness_guess": summary.get("harness_guess", "unknown"),
     }
     with _lock:
         c.execute(
@@ -161,13 +188,21 @@ def finalize(run: dict, summary: dict, status: str = "complete") -> None:
 def record_event(run_id: str, kind: str, result) -> None:
     """Persist one request outcome immediately (crash-safe, enables deep analysis)."""
     c = _conn()
+    response_text = " ".join(getattr(result, "bot_texts", None) or [])[:4000]
+    tool_errors = getattr(result, "tool_errors", None) or []
+    tool_errors_json = json.dumps(tool_errors, default=str)[:4000] if tool_errors else None
     with _lock:
         c.execute(
             "INSERT INTO events (run_id, ts, kind, status, latency_ms, "
-            "throttled, ok, error, tool_calls, knowledge_hits) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            "throttled, ok, error, tool_calls, knowledge_hits, conversation_id, "
+            "user_id, prompt, response, tool_error, tool_errors_json) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, time.time(), kind, result.status, result.latency_ms,
              int(result.throttled), int(result.ok), (result.error or "")[:300],
-             getattr(result, "tool_calls", 0), getattr(result, "knowledge_hits", 0)))
+             getattr(result, "tool_calls", 0), getattr(result, "knowledge_hits", 0),
+             result.conversation_id, getattr(result, "user_id", None),
+             getattr(result, "prompt", None), response_text,
+             int(getattr(result, "tool_error", False)), tool_errors_json))
         c.commit()
 
 
@@ -181,6 +216,50 @@ def get_events(run_id: str) -> list[dict]:
     c = _conn()
     rows = c.execute("SELECT * FROM events WHERE run_id=? ORDER BY ts", (run_id,)).fetchall()
     return [dict(r) for r in rows]
+
+
+def get_sessions(run_id: str) -> list[dict]:
+    """One row per conversation (session) in a run: turn count, timing, latency,
+    error/throttle counts -- the index view for picking a session to drill into."""
+    c = _conn()
+    rows = c.execute(
+        "SELECT conversation_id, user_id, "
+        "COUNT(*) AS turns, MIN(ts) AS first_ts, MAX(ts) AS last_ts, "
+        "AVG(latency_ms) AS avg_latency_ms, "
+        "SUM(CASE WHEN ok=0 THEN 1 ELSE 0 END) AS errors, "
+        "SUM(throttled) AS throttled, "
+        "SUM(COALESCE(tool_error,0)) AS tool_errors "
+        "FROM events WHERE run_id=? AND conversation_id IS NOT NULL "
+        "GROUP BY conversation_id ORDER BY first_ts", (run_id,)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["avg_latency_ms"] = round(d["avg_latency_ms"] or 0)
+        d["duration_s"] = round((d["last_ts"] or 0) - (d["first_ts"] or 0), 1)
+        d["first_iso"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(d["first_ts"])) \
+            if d["first_ts"] else None
+        out.append(d)
+    return out
+
+
+def get_session_detail(run_id: str, conversation_id: str) -> list[dict]:
+    """Ordered turn-by-turn transcript for one session: prompt, response, latency,
+    and any embedded tool/connector failures (e.g. Azure AI Search errors) found
+    even when the overall request succeeded."""
+    c = _conn()
+    rows = c.execute(
+        "SELECT ts, kind, status, latency_ms, throttled, ok, error, prompt, response, "
+        "tool_calls, knowledge_hits, tool_error, tool_errors_json FROM events "
+        "WHERE run_id=? AND conversation_id=? ORDER BY ts",
+        (run_id, conversation_id)).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["ts_iso"] = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(d["ts"]))
+        raw_te = d.pop("tool_errors_json", None)
+        d["tool_errors"] = json.loads(raw_te) if raw_te else []
+        out.append(d)
+    return out
 
 
 def list_runs(limit: int = 200) -> list[dict]:
