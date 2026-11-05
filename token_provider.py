@@ -27,20 +27,30 @@ from typing import Callable
 import msal
 
 SCOPE = ["https://api.powerplatform.com/.default"]
+A2A_SCOPE = ["https://api.powerplatform.com/copilotstudio-a2a/MCS.InvokeAsA2A"]
+MCP_SCOPE = ["https://api.powerplatform.com/copilotstudio-mcp/MCS.InvokeAsMCP"]
 AUTHORITY_TEMPLATE = "https://login.microsoftonline.com/{tenant_id}"
 _CACHE_PATH = Path(__file__).parent / ".token_cache.bin"
 
 
-def _load_cache() -> msal.SerializableTokenCache:
+def _cache_path_for(tenant_id: str, client_id: str, suffix: str) -> Path:
+    """Per-protocol/per-identity cache file so a D2E token cache never
+    collides with an A2A/MCP one for the same app registration."""
+    safe_tenant = tenant_id.replace("-", "")[:12]
+    safe_client = client_id.replace("-", "")[:12]
+    return Path(__file__).parent / f".{suffix}_{safe_tenant}_{safe_client}_token_cache.bin"
+
+
+def _load_cache(path: Path = _CACHE_PATH) -> msal.SerializableTokenCache:
     cache = msal.SerializableTokenCache()
-    if _CACHE_PATH.exists():
-        cache.deserialize(_CACHE_PATH.read_text())
+    if path.exists():
+        cache.deserialize(path.read_text())
     return cache
 
 
-def _save_cache(cache: msal.SerializableTokenCache) -> None:
+def _save_cache(cache: msal.SerializableTokenCache, path: Path = _CACHE_PATH) -> None:
     if cache.has_state_changed:
-        _CACHE_PATH.write_text(cache.serialize())
+        path.write_text(cache.serialize())
 
 
 class TokenProvider:
@@ -85,8 +95,10 @@ class DeviceCodeProvider(_MsalBase):
     """Interactive, MFA-compliant. Prints a code+URL once; caches the token."""
 
     def __init__(self, tenant_id: str, client_id: str,
-                 prompt: Callable[[dict], None] | None = None):
+                 prompt: Callable[[dict], None] | None = None,
+                 scope: list[str] | None = None):
         super().__init__(tenant_id, client_id)
+        self.scope = scope or SCOPE
         self._cache = _load_cache()
         self._app = msal.PublicClientApplication(
             client_id, authority=AUTHORITY_TEMPLATE.format(tenant_id=tenant_id),
@@ -100,11 +112,11 @@ class DeviceCodeProvider(_MsalBase):
                 return self._token
             accounts = self._app.get_accounts()
             if accounts:
-                silent = self._app.acquire_token_silent(SCOPE, account=accounts[0])
+                silent = self._app.acquire_token_silent(self.scope, account=accounts[0])
                 if silent and "access_token" in silent:
                     _save_cache(self._cache)
                     return self._store(silent)
-            flow = self._app.initiate_device_flow(scopes=SCOPE)
+            flow = self._app.initiate_device_flow(scopes=self.scope)
             if "user_code" not in flow:
                 raise RuntimeError(f"Device flow failed to start: {flow}")
             self._prompt(flow)
@@ -292,8 +304,93 @@ class AccountPoolManager(TokenProvider):
         return result["access_token"]
 
 
+class ConfidentialAuthCodeProvider(_MsalBase):
+    """Delegated auth for CONFIDENTIAL client app registrations (client secret
+    required -- "Allow public client flows" = No). Needed for A2A/MCP channels
+    where the only available app registration in a tenant isn't ours to
+    reconfigure (see plan.md "PFECRM authenticated conversation" for how this
+    was discovered). Uses a one-time manual OAuth2 authorization-code flow:
+    a local http.server listener catches the browser redirect, then MSAL's
+    ConfidentialClientApplication exchanges the code for a token. Silent
+    refresh (acquire_token_silent) is used on every subsequent call, so the
+    interactive browser step only happens once per cache file.
+    """
+
+    def __init__(self, tenant_id: str, client_id: str, client_secret: str,
+                 scope: list[str], redirect_uri: str = "http://localhost:3000",
+                 cache_suffix: str = "confidential"):
+        super().__init__(tenant_id, client_id)
+        if not client_secret:
+            raise RuntimeError(
+                "ConfidentialAuthCodeProvider requires a client_secret (this "
+                "app registration does not allow public client flows).")
+        self.scope = scope
+        self.redirect_uri = redirect_uri
+        self._cache_path = _cache_path_for(tenant_id, client_id, cache_suffix)
+        self._cache = _load_cache(self._cache_path)
+        self._app = msal.ConfidentialClientApplication(
+            client_id, client_credential=client_secret,
+            authority=AUTHORITY_TEMPLATE.format(tenant_id=tenant_id),
+            token_cache=self._cache,
+        )
+
+    def _interactive_auth_code_flow(self) -> dict:
+        import http.server
+        import threading as _threading
+        import urllib.parse
+        import webbrowser
+
+        flow = self._app.initiate_auth_code_flow(scopes=self.scope,
+                                                  redirect_uri=self.redirect_uri)
+        captured: dict = {}
+        port = int(self.redirect_uri.rsplit(":", 1)[-1])
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                captured.update({k: v[0] for k, v in qs.items()})
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(b"<html><body>Sign-in complete. You can close this tab.</body></html>")
+
+            def log_message(self, *_a):
+                pass
+
+        server = http.server.HTTPServer(("127.0.0.1", port), Handler)
+        thread = _threading.Thread(target=server.handle_request, daemon=True)
+        thread.start()
+        webbrowser.open(flow["auth_uri"])
+        thread.join(timeout=300)
+        server.server_close()
+        if not captured:
+            raise RuntimeError(
+                "Timed out waiting for the sign-in redirect. Complete the "
+                "browser sign-in/consent prompt within 5 minutes and retry.")
+        if "error" in captured:
+            raise RuntimeError(f"Auth error: {captured}")
+        return self._app.acquire_token_by_auth_code_flow(flow, captured)
+
+    def get_token(self) -> str:
+        with self._lock:
+            if self._valid():
+                return self._token
+            accounts = self._app.get_accounts()
+            if accounts:
+                silent = self._app.acquire_token_silent(self.scope, account=accounts[0])
+                if silent and "access_token" in silent:
+                    _save_cache(self._cache, self._cache_path)
+                    return self._store(silent)
+            result = self._interactive_auth_code_flow()
+            _save_cache(self._cache, self._cache_path)
+            return self._store(result)
+
+
 def build_provider(cfg: dict) -> TokenProvider:
-    """Factory from config dict. mode: static | devicecode | ropc."""
+    """Factory from config dict. mode: static | devicecode | ropc |
+    a2a_confidential | mcp_confidential. The two *_confidential modes are
+    for A2A/MCP channels against an existing confidential-client app
+    registration (client_secret required) -- see ConfidentialAuthCodeProvider."""
     mode = cfg.get("auth_mode", "devicecode").lower()
     if mode == "static":
         return StaticTokenProvider(cfg["static_token"])
@@ -303,4 +400,14 @@ def build_provider(cfg: dict) -> TokenProvider:
                             acct["username"], acct["password"])
     if mode == "devicecode":
         return DeviceCodeProvider(cfg["tenant_id"], cfg["client_id"])
+    if mode == "a2a_confidential":
+        return ConfidentialAuthCodeProvider(
+            cfg["tenant_id"], cfg["client_id"], cfg["client_secret"],
+            scope=A2A_SCOPE, redirect_uri=cfg.get("redirect_uri", "http://localhost:3000"),
+            cache_suffix="a2a")
+    if mode == "mcp_confidential":
+        return ConfidentialAuthCodeProvider(
+            cfg["tenant_id"], cfg["client_id"], cfg["client_secret"],
+            scope=MCP_SCOPE, redirect_uri=cfg.get("redirect_uri", "http://localhost:3000"),
+            cache_suffix="mcp")
     raise ValueError(f"Unknown auth_mode: {mode}")

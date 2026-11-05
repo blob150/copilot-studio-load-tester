@@ -93,11 +93,21 @@
       <button class="btn" style="margin:0" id="savePresetBtn">Save config</button>
     </div>
 
-    <label style="margin-top:16px">Endpoint URL (paste full D2E URL)</label>
+    <label style="margin-top:16px">Protocol</label>
+    <select id="protocol">
+      <option value="d2e">Direct-to-Engine (D2E)</option>
+      <option value="a2a">A2A (preview; streaming)</option>
+    </select>
+
+    <label style="margin-top:12px" id="urlLabel">Endpoint URL (paste full D2E URL)</label>
     <textarea id="url" placeholder="https://{env}.environment.api.powerplatform.com/copilotstudio/dataverse-backed/authenticated/bots/{schema}/conversations?api-version=2022-03-01-preview"></textarea>
-    <div class="row">
+    <div class="row" id="d2eDerivedRow">
       <div><label>Host (auto)</label><input id="host" readonly class="derived"></div>
       <div><label>Schema (auto)</label><input id="schema" readonly class="derived"></div>
+    </div>
+    <div class="row" id="a2aDerivedRow" style="display:none">
+      <div><label>Environment (auto)</label><input id="environment_id_a2a" readonly class="derived"></div>
+      <div><label>Agent (auto)</label><input id="agent_id" readonly class="derived"></div>
     </div>
     <label>Environment ID (for credit lookup)</label>
     <input id="environment_id" placeholder="GUID">
@@ -109,10 +119,15 @@
       <option value="devicecode">Device code (single account, cached)</option>
       <option value="pool">Account pool (multi-account wizard)</option>
       <option value="static">Static bearer token</option>
+      <option value="a2a_confidential">A2A: confidential client (secret required)</option>
     </select>
     <div class="row" id="aadRow">
       <div><label>Tenant ID</label><input id="tenant_id"></div>
       <div><label>Client ID</label><input id="client_id"></div>
+    </div>
+    <div id="secretRow" style="display:none">
+      <label>Client secret (confidential app registrations only -- never saved to presets)</label>
+      <input id="client_secret" type="password" autocomplete="off">
     </div>
     <div id="tokRow" style="display:none"><label>Bearer token</label><textarea id="static_token"></textarea></div>
     <button class="btn" id="authBtn" style="background:var(--panel2);color:var(--ink);border:1px solid var(--line)">Authenticate now</button>
@@ -377,16 +392,33 @@ async function parseUrl(){
   const d = await r.json();
   $('host').value = d.host || '';
   $('schema').value = d.schema || '';
+  $('environment_id_a2a').value = d.environment_id || '';
+  $('agent_id').value = d.agent_id || '';
+  if(d.a2a_url) $('url').dataset.a2aUrl = d.a2a_url;
 }
 $('url').addEventListener('input', parseUrl);
 $('url').addEventListener('blur', parseUrl);
+$('protocol').onchange = e => {
+  const isA2A = e.target.value==='a2a';
+  $('urlLabel').textContent = isA2A
+    ? 'Agent URL (paste the A2A agent base URL or its .well-known/agent-card.json URL)'
+    : 'Endpoint URL (paste full D2E URL)';
+  $('url').placeholder = isA2A
+    ? 'https://api.powerplatform.com/copilotstudio-a2a/tenants/{tenant}/environments/{env}/agents/{agent}'
+    : 'https://{env}.environment.api.powerplatform.com/copilotstudio/dataverse-backed/authenticated/bots/{schema}/conversations?api-version=2022-03-01-preview';
+  $('d2eDerivedRow').style.display = isA2A?'none':'grid';
+  $('a2aDerivedRow').style.display = isA2A?'grid':'none';
+  parseUrl();
+};
 $('auth_mode').onchange = e => {
   const mode = e.target.value;
   const s = mode==='static';
+  const confidential = mode==='a2a_confidential';
   $('tokRow').style.display = s?'block':'none';
+  $('secretRow').style.display = confidential?'block':'none';
   $('aadRow').style.display = s?'none':'grid';
   $('poolWizard').style.display = mode==='pool'?'block':'none';
-  $('authBtn').style.display = mode==='pool'?'none':'block';
+  $('authBtn').style.display = (mode==='pool'||confidential)?'none':'block';
   if(mode==='pool') refreshPoolAccounts();
 };
 function fallbackCopy(text, onSuccess){
@@ -475,13 +507,17 @@ $('mode').onchange = e => {
   $('spikeCfg').style.display = m==='spike'?'block':'none';
 };
 $('mode').dispatchEvent(new Event('change'));
+$('protocol').dispatchEvent(new Event('change'));
 
 function cfg(){
   return {
+    protocol:$('protocol').value,
     url:$('url').value, host:$('host').value, schema:$('schema').value,
+    a2a_url:$('url').dataset.a2aUrl || '',
     environment_id:$('environment_id').value, org_url:$('org_url').value,
     auth_mode:$('auth_mode').value, tenant_id:$('tenant_id').value,
     client_id:$('client_id').value, static_token:$('static_token').value,
+    client_secret:$('client_secret').value,
     mode:$('mode').value, smoke_sessions:+$('smoke_sessions').value,
     virtual_users:+$('virtual_users').value, sessions_per_vu:+$('sessions_per_vu').value,
     rampup_seconds:+$('rampup_seconds').value, hold_seconds:+$('hold_seconds').value,
@@ -498,10 +534,12 @@ function cfg(){
 function applyConfig(c){
   if(!c) return;
   const set = (id,val) => { if(val!==undefined && val!==null) $(id).value = val; };
+  if(c.protocol){ $('protocol').value = c.protocol; $('protocol').dispatchEvent(new Event('change')); }
   set('url', c.url); parseUrl();
   set('environment_id', c.environment_id); set('org_url', c.org_url);
   if(c.auth_mode){ $('auth_mode').value = c.auth_mode; $('auth_mode').dispatchEvent(new Event('change')); }
   set('tenant_id', c.tenant_id); set('client_id', c.client_id); set('static_token', c.static_token);
+  // client_secret is intentionally NOT restored from presets (never persisted).
   if(c.mode){ $('mode').value = c.mode; $('mode').dispatchEvent(new Event('change')); }
   set('smoke_sessions', c.smoke_sessions);
   set('virtual_users', c.virtual_users); set('sessions_per_vu', c.sessions_per_vu);

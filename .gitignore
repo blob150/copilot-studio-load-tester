@@ -26,6 +26,7 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+.venv_a2asdk/
 
 # OS
 .DS_Store

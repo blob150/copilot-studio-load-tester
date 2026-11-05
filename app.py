@@ -16,6 +16,7 @@ import run_store
 from engine import LoadEngine
 from stats import StatsAggregator
 from token_provider import AccountPoolManager, DeviceCodeProvider, StaticTokenProvider
+from token_provider import build_provider as tp_build_provider
 
 app = Flask(__name__)
 
@@ -37,6 +38,10 @@ URL_RE = re.compile(
     r"https://(?P<host>[^/]+)/copilotstudio/[^/]+/authenticated/bots/"
     r"(?P<schema>[^/]+)/conversations\?api-version=(?P<ver>[\w\-]+)")
 
+A2A_URL_RE = re.compile(
+    r"https://(?P<a2a_host>[^/]+)/copilotstudio-a2a/tenants/(?P<tenant_id>[^/]+)/"
+    r"environments/(?P<environment_id>[^/]+)/agents/(?P<agent_id>[^/?#]+)")
+
 
 def parse_endpoint(url: str) -> dict:
     m = URL_RE.search(url or "")
@@ -46,12 +51,27 @@ def parse_endpoint(url: str) -> dict:
             "api_version": m.group("ver")}
 
 
+def parse_a2a_endpoint(url: str) -> dict:
+    """Accepts either the agent base URL or the .well-known/agent-card.json
+    discovery URL -- both carry the same tenant/environment/agent path
+    segments, so this just strips anything after the agent id."""
+    m = A2A_URL_RE.search(url or "")
+    if not m:
+        return {}
+    base = (f"https://{m.group('a2a_host')}/copilotstudio-a2a/tenants/{m.group('tenant_id')}/"
+            f"environments/{m.group('environment_id')}/agents/{m.group('agent_id')}")
+    return {"a2a_url": base, "tenant_id": m.group("tenant_id"),
+            "environment_id": m.group("environment_id"), "agent_id": m.group("agent_id")}
+
+
 def build_provider(cfg: dict):
     mode = cfg.get("auth_mode", "devicecode")
     if mode == "static":
         return StaticTokenProvider(cfg["static_token"])
     if mode == "pool":
         return _get_pool_manager(cfg["tenant_id"], cfg["client_id"])
+    if mode in ("a2a_confidential", "mcp_confidential"):
+        return tp_build_provider(cfg)
 
     def prompt(flow):
         with _lock:
@@ -162,20 +182,40 @@ def index():
 
 @app.route("/api/parse_url", methods=["POST"])
 def api_parse_url():
-    return jsonify(parse_endpoint(request.json.get("url", "")))
+    url = request.json.get("url", "")
+    a2a = parse_a2a_endpoint(url)
+    if a2a:
+        return jsonify(a2a)
+    return jsonify(parse_endpoint(url))
 
 
 @app.route("/api/start", methods=["POST"])
 def api_start():
     cfg = request.json or {}
-    # Server-side safety net: derive host/schema/api_version from the URL if blank.
-    if cfg.get("url") and (not cfg.get("host") or not cfg.get("schema")):
-        parsed = parse_endpoint(cfg["url"])
-        for k, v in parsed.items():
-            if not cfg.get(k):
-                cfg[k] = v
-    if not cfg.get("host") or not cfg.get("schema"):
-        return jsonify({"error": "Host/schema missing. Paste a valid endpoint URL."}), 400
+    protocol = (cfg.get("protocol") or "d2e").lower()
+    if protocol == "a2a":
+        # Server-side safety net: derive a2a_url/tenant/env/agent from the
+        # pasted URL if blank (same pattern as the D2E host/schema derivation).
+        if cfg.get("url") and not cfg.get("a2a_url"):
+            parsed = parse_a2a_endpoint(cfg["url"])
+            for k, v in parsed.items():
+                if not cfg.get(k):
+                    cfg[k] = v
+        if not cfg.get("a2a_url"):
+            return jsonify({"error": "A2A agent URL missing. Paste the agent base "
+                                      "URL or its .well-known/agent-card.json URL."}), 400
+        if cfg.get("auth_mode") == "a2a_confidential" and not cfg.get("client_secret"):
+            return jsonify({"error": "client_secret is required for auth_mode "
+                                      "a2a_confidential."}), 400
+    else:
+        # Server-side safety net: derive host/schema/api_version from the URL if blank.
+        if cfg.get("url") and (not cfg.get("host") or not cfg.get("schema")):
+            parsed = parse_endpoint(cfg["url"])
+            for k, v in parsed.items():
+                if not cfg.get(k):
+                    cfg[k] = v
+        if not cfg.get("host") or not cfg.get("schema"):
+            return jsonify({"error": "Host/schema missing. Paste a valid endpoint URL."}), 400
     with _lock:
         prev = _state.get("stats")
         thread_busy = _state["thread"] and _state["thread"].is_alive()
@@ -400,7 +440,13 @@ def api_presets_save():
     name = (body.get("name") or "").strip()
     if not name:
         return jsonify({"error": "name is required"}), 400
-    preset = run_store.save_preset(name, body.get("config", {}), body.get("id"))
+    # Never persist secrets (client_secret, static_token) into saved presets --
+    # server-side enforcement, independent of whether the client UI stripped
+    # them, since this is the data boundary that actually writes to disk.
+    config = dict(body.get("config", {}))
+    config.pop("client_secret", None)
+    config.pop("static_token", None)
+    preset = run_store.save_preset(name, config, body.get("id"))
     return jsonify(preset)
 
 

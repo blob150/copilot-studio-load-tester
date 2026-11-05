@@ -9,6 +9,7 @@ import random
 import threading
 import time
 
+from a2a_client import A2AClient
 from d2e_client import D2EClient
 from stats import StatsAggregator
 
@@ -18,9 +19,18 @@ class LoadEngine:
         self.cfg = config
         self.provider = provider
         self.stats = stats
-        self.client = D2EClient(config["host"], config["schema"],
-                                config.get("api_version", "2022-03-01-preview"),
-                                timeout=float(config.get("request_timeout", 120)))
+        timeout = float(config.get("request_timeout", 120))
+        protocol = (config.get("protocol") or "d2e").lower()
+        self.protocol = protocol
+        if protocol == "a2a":
+            # a2a_url is the full agent base URL, e.g.
+            # https://api.powerplatform.com/copilotstudio-a2a/tenants/{t}/
+            # environments/{e}/agents/{a}  (see app.py parse_a2a_url)
+            self.client = A2AClient(config["a2a_url"], timeout=timeout)
+        else:
+            self.client = D2EClient(config["host"], config["schema"],
+                                    config.get("api_version", "2022-03-01-preview"),
+                                    timeout=timeout)
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self._active = 0
