@@ -134,6 +134,56 @@ def api_pool_accounts():
     return jsonify(pm.list_accounts())
 
 
+@app.route("/api/pool/accounts_all")
+def api_pool_accounts_all():
+    """Aggregate accounts across EVERY known (tenant_id, client_id) combo --
+    every saved auth profile, plus any ad-hoc tenant/client passed in query
+    params that isn't already covered by a saved profile -- each account
+    tagged with which tenant/profile it belongs to. Without this, switching
+    to a second tenant's account pool made the first tenant's accounts
+    invisible (nothing on screen told you a second tenant's accounts even
+    existed), which is what this endpoint and the matching UI fix for.
+
+    Checks BOTH the Account Pool cache AND the single-account devicecode
+    cache for each target, since a tenant might have been used via either
+    "Authenticate now" (devicecode) or the pool wizard -- a tenant you only
+    ever used one of those two ways shouldn't be invisible here."""
+    scope = tp_scope_for_protocol(request.args.get("protocol"))
+    seen: set[tuple[str, str]] = set()
+    targets: list[dict] = []
+    for p in run_store.list_auth_profiles():
+        key = (p["tenant_id"], p["client_id"])
+        if key not in seen:
+            seen.add(key)
+            targets.append({"tenant_id": p["tenant_id"], "client_id": p["client_id"],
+                            "profile_name": p["name"]})
+    adhoc_tenant = request.args.get("tenant_id")
+    adhoc_client = request.args.get("client_id")
+    if adhoc_tenant and adhoc_client and (adhoc_tenant, adhoc_client) not in seen:
+        targets.append({"tenant_id": adhoc_tenant, "client_id": adhoc_client,
+                        "profile_name": None})
+
+    out = []
+    for t in targets:
+        seen_haids: set[str] = set()
+        pm = _get_pool_manager(t["tenant_id"], t["client_id"], scope)
+        for a in pm.list_accounts():
+            a["tenant_id"] = t["tenant_id"]
+            a["client_id"] = t["client_id"]
+            a["profile_name"] = t["profile_name"]
+            seen_haids.add(a.get("home_account_id"))
+            out.append(a)
+        dc = DeviceCodeProvider(t["tenant_id"], t["client_id"], prompt=lambda f: None, scope=scope)
+        for a in dc.list_accounts():
+            if a.get("home_account_id") in seen_haids:
+                continue  # same account signed in via both modes -- don't double-list
+            a["tenant_id"] = t["tenant_id"]
+            a["client_id"] = t["client_id"]
+            a["profile_name"] = t["profile_name"]
+            out.append(a)
+    return jsonify(out)
+
+
 @app.route("/api/pool/remove", methods=["POST"])
 def api_pool_remove():
     body = request.json or {}
@@ -237,10 +287,7 @@ def api_start():
         # merely doing post-run credit/enrichment work must not block a new run.
         if thread_busy and load_running:
             return jsonify({"error": "A run is already in progress."}), 409
-        _state["device_prompt"] = None
-        run = run_store.new_run(cfg)
-        stats = StatsAggregator(on_record=lambda kind, result:
-                                run_store.record_event(run["id"], kind, result))
+
         # Reuse a pre-authenticated provider when available and compatible --
         # must match tenant, client, AND scope (protocol), not just client_id,
         # otherwise a provider authenticated for a different tenant or a
@@ -255,6 +302,32 @@ def api_start():
             provider = prov
         else:
             provider = build_provider(cfg)
+
+        # Hard-fail BEFORE creating a run record or starting any virtual user
+        # threads if this provider would need an interactive sign-in
+        # (device-code or a confidential auth-code flow) mid-run. Every
+        # virtual user thread shares the SAME provider instance, and its
+        # internal lock is held for the ENTIRE interactive flow (up to ~15
+        # minutes for device code) -- so the first thread blocks waiting for
+        # you to sign in, and every other thread blocks behind it, with the
+        # running test showing "N active, 0 completed" forever and no
+        # visible prompt (see plan.md 2026-11-09 "A2A smoke test appeared
+        # stuck"). Pool mode already fails fast via get_token_for's
+        # RuntimeError, so it's exempt from this check.
+        has_check = getattr(provider, "has_cached_token", None)
+        if has_check is not None and not has_check():
+            return jsonify({
+                "error": "This app registration/tenant has no cached sign-in yet. "
+                         "Click \"Authenticate now\" and complete the sign-in prompt "
+                         "BEFORE starting a run with more than one session -- "
+                         "otherwise every virtual user blocks waiting behind the "
+                         "same interactive sign-in with no visible progress."
+            }), 400
+
+        _state["device_prompt"] = None
+        run = run_store.new_run(cfg)
+        stats = StatsAggregator(on_record=lambda kind, result:
+                                run_store.record_event(run["id"], kind, result))
         engine = LoadEngine(cfg, provider, stats)
         _state.update(engine=engine, stats=stats, run=run)
 

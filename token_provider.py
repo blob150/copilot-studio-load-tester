@@ -139,6 +139,40 @@ class _MsalBase(TokenProvider):
         return self._token is not None and time.time() < self._exp
 
 
+def _list_accounts(app: msal.PublicClientApplication, scope: list[str],
+                   expiry_cache: dict[str, float]) -> list[dict]:
+    """Shared by DeviceCodeProvider.list_accounts and
+    AccountPoolManager.list_accounts: each cached account's current token
+    expiry, refreshing silently (cheap/cached by MSAL) so the UI can show a
+    live, accurate countdown rather than a stale guess."""
+    accounts = list(app.get_accounts())
+    out = []
+    for a in accounts:
+        haid = a.get("home_account_id")
+        exp = expiry_cache.get(haid)
+        status = "unknown"
+        try:
+            result = app.acquire_token_silent(scope, account=a)
+            if result and "access_token" in result:
+                exp = time.time() + int(result.get("expires_in", 3600))
+                expiry_cache[haid] = exp
+                status = "valid"
+            else:
+                status = "expired"
+        except Exception:
+            status = "error"
+        out.append({
+            "username": a.get("username"),
+            "home_account_id": haid,
+            "status": status,
+            "expires_at": exp,
+            "expires_iso": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(exp))
+                          if exp else None,
+            "seconds_remaining": max(0, int(exp - time.time())) if exp else None,
+        })
+    return out
+
+
 class DeviceCodeProvider(_MsalBase):
     """Interactive, MFA-compliant. Prints a code+URL once; caches the token."""
 
@@ -147,6 +181,7 @@ class DeviceCodeProvider(_MsalBase):
                  scope: list[str] | None = None):
         super().__init__(tenant_id, client_id)
         self.scope = scope or SCOPE
+        self._expiry: dict[str, float] = {}
         # Per tenant+client cache file (NOT the shared legacy _CACHE_PATH) --
         # MSAL's "Account" cache entries are env/tenant-scoped SSO artifacts,
         # not client_id-scoped, so sharing one file across different app
@@ -163,6 +198,36 @@ class DeviceCodeProvider(_MsalBase):
             token_cache=self._cache,
         )
         self._prompt = prompt or (lambda f: print(f["message"], flush=True))
+
+    def list_accounts(self) -> list[dict]:
+        """Exposes this single-account provider's cached account(s) in the
+        same shape as AccountPoolManager.list_accounts, so the Accounts tab's
+        aggregate view can show devicecode-mode sign-ins too, not just pool
+        sign-ins -- a tenant used once via "Authenticate now" (devicecode)
+        shouldn't be invisible just because it was never used with the
+        Account Pool wizard."""
+        return _list_accounts(self._app, self.scope, self._expiry)
+
+    def has_cached_token(self) -> bool:
+        """True if get_token() can succeed WITHOUT triggering an interactive
+        device-code sign-in (i.e. a cached/refreshable account already
+        exists). Used to gate starting a multi-threaded load test on
+        devicecode auth_mode -- without this check, every virtual user
+        thread calls get_token() on the SAME provider instance, and if no
+        account is cached, the FIRST thread blocks for up to ~15 minutes
+        inside MSAL's device-code polling while holding this provider's
+        lock, silently blocking every other thread behind it with no
+        visible indication in the running test's UI."""
+        if self._valid():
+            return True
+        accounts = self._app.get_accounts()
+        if not accounts:
+            return False
+        try:
+            silent = self._app.acquire_token_silent(self.scope, account=accounts[0])
+        except Exception:
+            return False
+        return bool(silent and "access_token" in silent)
 
     def get_token(self) -> str:
         with self._lock:
@@ -264,34 +329,7 @@ class AccountPoolManager(TokenProvider):
     def list_accounts(self) -> list[dict]:
         """Each account's current token expiry, refreshing silently (cheap/cached by
         MSAL) so the UI can show a live, accurate countdown rather than a stale guess."""
-        with self._lock:
-            accounts = list(self._app.get_accounts())
-        out = []
-        for a in accounts:
-            haid = a.get("home_account_id")
-            exp = self._expiry.get(haid)
-            status = "unknown"
-            try:
-                result = self._app.acquire_token_silent(self.scope, account=a)
-                if result and "access_token" in result:
-                    exp = time.time() + int(result.get("expires_in", 3600))
-                    with self._lock:
-                        self._expiry[haid] = exp
-                    status = "valid"
-                else:
-                    status = "expired"
-            except Exception:
-                status = "error"
-            out.append({
-                "username": a.get("username"),
-                "home_account_id": haid,
-                "status": status,
-                "expires_at": exp,
-                "expires_iso": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(exp))
-                              if exp else None,
-                "seconds_remaining": max(0, int(exp - time.time())) if exp else None,
-            })
-        return out
+        return _list_accounts(self._app, self.scope, self._expiry)
 
     def begin_add_account(self) -> dict:
         """Kick off a new device-code sign-in in the background; returns the
@@ -400,6 +438,21 @@ class ConfidentialAuthCodeProvider(_MsalBase):
             authority=AUTHORITY_TEMPLATE.format(tenant_id=tenant_id),
             token_cache=self._cache,
         )
+
+    def has_cached_token(self) -> bool:
+        """See DeviceCodeProvider.has_cached_token -- same purpose: detect
+        whether get_token() can succeed without opening a browser/blocking
+        on a local redirect listener for up to 5 minutes."""
+        if self._valid():
+            return True
+        accounts = self._app.get_accounts()
+        if not accounts:
+            return False
+        try:
+            silent = self._app.acquire_token_silent(self.scope, account=accounts[0])
+        except Exception:
+            return False
+        return bool(silent and "access_token" in silent)
 
     def _interactive_auth_code_flow(self) -> dict:
         import http.server

@@ -312,7 +312,12 @@ What are the steps to file an incident report?</textarea>
     <p class="muted" style="font-size:12px">Accounts added via the Account pool wizard
       (Live Test → Auth mode → Account pool), or right here. Token status refreshes each
       time this tab loads — MSAL silently renews the access token using its refresh
-      token as needed, so “valid” usually means you're good to go without re-signing-in.</p>
+      token as needed, so “valid” usually means you're good to go without re-signing-in.
+      This table shows accounts across <b>every tenant you have a saved Auth profile
+      for</b> (Live Test → Auth profile), so a second tenant's accounts never silently
+      disappear just because you're looking at a different one right now.</p>
+
+    <label>Add an account to…</label>
     <div class="row" style="margin-bottom:10px">
       <div><label>Tenant ID</label><input id="acctTenant"></div>
       <div><label>Client ID</label><input id="acctClient"></div>
@@ -323,7 +328,7 @@ What are the steps to file an incident report?</textarea>
     </div>
     <div id="acctAddState" class="muted" style="font-size:12px;margin-bottom:10px"></div>
     <table><thead><tr>
-      <th>Username</th><th>Status</th><th>Token expires</th><th>Time remaining</th><th></th>
+      <th>Tenant / Profile</th><th>Username</th><th>Status</th><th>Token expires</th><th>Time remaining</th><th></th>
     </tr></thead><tbody id="acctBody"></tbody></table>
   </div>
 </div>
@@ -373,31 +378,36 @@ function fmtRemaining(sec){
   const m = Math.floor(sec/60), s = sec%60;
   return m>0 ? `${m}m ${s}s` : `${s}s`;
 }
+function shortTenant(tenantId){
+  return tenantId ? tenantId.slice(0,8)+'…' : '';
+}
 async function loadAccountsTab(){
-  const tenant = $('acctTenant').value.trim(), client = $('acctClient').value.trim();
-  if(tenant) localStorage.setItem('lastTenantId', tenant);
-  if(client) localStorage.setItem('lastClientId', client);
-  if(!tenant || !client){
-    $('acctBody').innerHTML = '<tr><td colspan="5" class="muted">Enter Tenant ID and Client ID (or add an account from Live Test) to see the pool.</td></tr>';
-    return;
-  }
   const protocol = $('protocol') ? $('protocol').value : 'd2e';
-  const r = await fetch('/api/pool/accounts?tenant_id='+encodeURIComponent(tenant)+'&client_id='+encodeURIComponent(client)+'&protocol='+encodeURIComponent(protocol));
+  const tenant = $('acctTenant').value.trim(), client = $('acctClient').value.trim();
+  let url = '/api/pool/accounts_all?protocol='+encodeURIComponent(protocol);
+  if(tenant && client){
+    // Include whatever's in the manual Add-account fields too, even if it
+    // isn't saved as an Auth profile yet, so a brand-new ad-hoc tenant/client
+    // you just added an account to still shows up immediately.
+    url += '&tenant_id='+encodeURIComponent(tenant)+'&client_id='+encodeURIComponent(client);
+  }
+  const r = await fetch(url);
   const accounts = await r.json();
   $('acctBody').innerHTML = accounts.map(a=>{
     const cls = a.status==='valid' ? 's2' : (a.status==='expired' ? 's4' : 's5');
+    const tenantLabel = a.profile_name || shortTenant(a.tenant_id);
     return `<tr>
+      <td class="muted" title="${a.tenant_id||''} / ${a.client_id||''}">${tenantLabel}</td>
       <td>${a.username||''}</td>
       <td><span class="pill ${cls}">${a.status}</span></td>
       <td>${a.expires_iso||'—'}</td>
       <td>${fmtRemaining(a.seconds_remaining)}</td>
-      <td><button onclick="removeAccount('${a.home_account_id}')">Remove</button></td>
+      <td><button onclick="removeAccount('${a.home_account_id}','${a.tenant_id}','${a.client_id}')">Remove</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="5" class="muted">No accounts in the pool yet. If you expected one to be here, check that Tenant ID / Client ID above exactly match what was used to authenticate.</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="muted">No accounts yet across any saved Auth profile. Save a profile (Live Test → Auth profile) or enter a Tenant ID / Client ID above and add an account.</td></tr>';
 }
-async function removeAccount(haid){
+async function removeAccount(haid, tenant, client){
   if(!confirm('Remove this account from the pool?')) return;
-  const tenant = $('acctTenant').value.trim(), client = $('acctClient').value.trim();
   const protocol = $('protocol') ? $('protocol').value : 'd2e';
   await fetch('/api/pool/remove',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({home_account_id:haid, tenant_id:tenant, client_id:client, protocol})});
