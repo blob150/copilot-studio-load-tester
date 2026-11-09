@@ -62,6 +62,16 @@ CREATE TABLE IF NOT EXISTS presets (
     created_iso TEXT,
     config_json TEXT
 );
+
+CREATE TABLE IF NOT EXISTS auth_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    created_iso TEXT,
+    tenant_id TEXT,
+    client_id TEXT,
+    auth_mode TEXT,
+    note TEXT
+);
 """
 
 
@@ -367,6 +377,51 @@ def delete_preset(preset_id: str) -> None:
     c = _conn()
     with _lock:
         c.execute("DELETE FROM presets WHERE id=?", (preset_id,))
+        c.commit()
+
+
+# ---- auth profiles ----------------------------------------------------
+# A named (tenant_id, client_id, auth_mode) combo, independent of load-test
+# presets, so switching which tenant/app-registration you're testing against
+# doesn't require re-typing GUIDs or hunting through unrelated saved load
+# configs. Never stores client_secret -- same policy as presets.
+
+def save_auth_profile(name: str, tenant_id: str, client_id: str,
+                      auth_mode: str = "pool", note: str = "",
+                      profile_id: str | None = None) -> dict:
+    c = _conn()
+    pid = profile_id or uuid.uuid4().hex[:12]
+    created_iso = time.strftime("%Y-%m-%d %H:%M:%S")
+    with _lock:
+        c.execute(
+            "INSERT INTO auth_profiles (id, name, created_iso, tenant_id, client_id, "
+            "auth_mode, note) VALUES (?,?,?,?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET name=excluded.name, tenant_id=excluded.tenant_id, "
+            "client_id=excluded.client_id, auth_mode=excluded.auth_mode, note=excluded.note",
+            (pid, name, created_iso, tenant_id, client_id, auth_mode, note))
+        c.commit()
+    return {"id": pid, "name": name, "created_iso": created_iso, "tenant_id": tenant_id,
+            "client_id": client_id, "auth_mode": auth_mode, "note": note}
+
+
+def list_auth_profiles() -> list[dict]:
+    c = _conn()
+    rows = c.execute(
+        "SELECT id, name, created_iso, tenant_id, client_id, auth_mode, note "
+        "FROM auth_profiles ORDER BY name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_auth_profile(profile_id: str) -> dict | None:
+    c = _conn()
+    row = c.execute("SELECT * FROM auth_profiles WHERE id=?", (profile_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def delete_auth_profile(profile_id: str) -> None:
+    c = _conn()
+    with _lock:
+        c.execute("DELETE FROM auth_profiles WHERE id=?", (profile_id,))
         c.commit()
 
 

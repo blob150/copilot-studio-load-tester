@@ -114,7 +114,26 @@
     <label>Dataverse org URL (for historical tool enrichment)</label>
     <input id="org_url" placeholder="https://orgxxxx.crm.dynamics.com">
 
-    <label>Auth mode</label>
+    <label>Auth profile (tenant / app registration)</label>
+    <div class="row">
+      <select id="authProfileSelect"><option value="">-- Select a saved tenant/app registration --</option></select>
+      <div style="display:flex;gap:6px">
+        <button class="btn" style="margin:0" id="loadAuthProfileBtn">Load</button>
+        <button class="btn" style="margin:0;background:var(--err);color:#fff" id="deleteAuthProfileBtn">Delete</button>
+      </div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <input id="authProfileName" placeholder="Name this tenant (e.g. PFECRM, DIAx)...">
+      <button class="btn" style="margin:0" id="saveAuthProfileBtn">Save profile</button>
+    </div>
+    <p class="muted" style="font-size:11px;margin:4px 0 0">
+      A profile remembers Tenant ID + Client ID + Auth mode only (never a secret) --
+      independent of your load-test presets below, so you can switch which tenant
+      you are pointed at without retyping GUIDs or losing an already-signed-in
+      account pool. Each tenant keeps its own account pool in this running session.
+    </p>
+
+    <label style="margin-top:12px">Auth mode</label>
     <select id="auth_mode">
       <option value="devicecode">Device code (single account, cached)</option>
       <option value="pool">Account pool (multi-account wizard)</option>
@@ -362,7 +381,8 @@ async function loadAccountsTab(){
     $('acctBody').innerHTML = '<tr><td colspan="5" class="muted">Enter Tenant ID and Client ID (or add an account from Live Test) to see the pool.</td></tr>';
     return;
   }
-  const r = await fetch('/api/pool/accounts?tenant_id='+encodeURIComponent(tenant)+'&client_id='+encodeURIComponent(client));
+  const protocol = $('protocol') ? $('protocol').value : 'd2e';
+  const r = await fetch('/api/pool/accounts?tenant_id='+encodeURIComponent(tenant)+'&client_id='+encodeURIComponent(client)+'&protocol='+encodeURIComponent(protocol));
   const accounts = await r.json();
   $('acctBody').innerHTML = accounts.map(a=>{
     const cls = a.status==='valid' ? 's2' : (a.status==='expired' ? 's4' : 's5');
@@ -377,8 +397,10 @@ async function loadAccountsTab(){
 }
 async function removeAccount(haid){
   if(!confirm('Remove this account from the pool?')) return;
+  const tenant = $('acctTenant').value.trim(), client = $('acctClient').value.trim();
+  const protocol = $('protocol') ? $('protocol').value : 'd2e';
   await fetch('/api/pool/remove',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({home_account_id:haid})});
+    body:JSON.stringify({home_account_id:haid, tenant_id:tenant, client_id:client, protocol})});
   loadAccountsTab();
 }
 $('acctRefreshBtn').onclick = loadAccountsTab;
@@ -433,12 +455,15 @@ function fallbackCopy(text, onSuccess){
 async function startAddAccount(tenantId, clientId, statusElId, onDone){
   const statusEl = $(statusElId);
   if(!tenantId || !clientId){ alert('Enter Tenant ID and Client ID first.'); return; }
+  const protocol = $('protocol') ? $('protocol').value : 'd2e';
   statusEl.textContent = 'Starting sign-in…';
   let lastRenderedCode = null;
   await fetch('/api/pool/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({tenant_id:tenantId, client_id:clientId})});
+    body:JSON.stringify({tenant_id:tenantId, client_id:clientId, protocol})});
   const poll = setInterval(async () => {
-    const r = await fetch('/api/pool/status'); const s = await r.json();
+    const r = await fetch('/api/pool/status?tenant_id='+encodeURIComponent(tenantId)
+      +'&client_id='+encodeURIComponent(clientId)+'&protocol='+encodeURIComponent(protocol));
+    const s = await r.json();
     if(s.status==='pending' && s.user_code){
       // Only (re)build the box when the code actually changes -- otherwise this
       // 1.5s poll wipes out the "Copy code" button's transient "✓ Copied" state
@@ -494,7 +519,8 @@ $('acctAddBtn').onclick = () => startAddAccount(
 async function refreshPoolAccounts(){
   const tenant_id = $('tenant_id').value, client_id = $('client_id').value;
   if(!tenant_id || !client_id) return;
-  const r = await fetch('/api/pool/accounts?tenant_id='+encodeURIComponent(tenant_id)+'&client_id='+encodeURIComponent(client_id));
+  const protocol = $('protocol') ? $('protocol').value : 'd2e';
+  const r = await fetch('/api/pool/accounts?tenant_id='+encodeURIComponent(tenant_id)+'&client_id='+encodeURIComponent(client_id)+'&protocol='+encodeURIComponent(protocol));
   const accounts = await r.json();
   $('poolAccounts').innerHTML = accounts.map(a=>
     `<tr><td>${a.username||''}</td><td class="muted">${a.status} · ${fmtRemaining(a.seconds_remaining)}</td></tr>`
@@ -583,6 +609,47 @@ $('deletePresetBtn').onclick = async () => {
   await loadPresets();
 };
 loadPresets();
+
+// --- Auth profiles: named (tenant_id, client_id, auth_mode) combos, so
+// switching tenants doesn't mean retyping GUIDs or hunting through unrelated
+// load-test presets. Never stores a client secret. ---
+let authProfilesCache = [];
+async function loadAuthProfiles(){
+  const r = await fetch('/api/auth_profiles'); authProfilesCache = await r.json();
+  const sel = $('authProfileSelect');
+  const prevValue = sel.value;
+  sel.innerHTML = '<option value="">— Select a saved tenant/app registration —</option>' +
+    authProfilesCache.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  if(prevValue) sel.value = prevValue;
+}
+$('saveAuthProfileBtn').onclick = async () => {
+  const name = $('authProfileName').value.trim();
+  if(!name){ alert('Enter a name for this tenant/app registration.'); return; }
+  const tenant_id = $('tenant_id').value.trim(), client_id = $('client_id').value.trim();
+  if(!tenant_id || !client_id){ alert('Enter Tenant ID and Client ID first.'); return; }
+  await fetch('/api/auth_profiles',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name, tenant_id, client_id, auth_mode:$('auth_mode').value})});
+  $('authProfileName').value='';
+  await loadAuthProfiles();
+};
+$('loadAuthProfileBtn').onclick = async () => {
+  const id = $('authProfileSelect').value;
+  if(!id){ alert('Select a saved tenant/app registration first.'); return; }
+  const r = await fetch('/api/auth_profiles/'+id); const p = await r.json();
+  $('tenant_id').value = p.tenant_id || '';
+  $('client_id').value = p.client_id || '';
+  if(p.auth_mode){ $('auth_mode').value = p.auth_mode; $('auth_mode').dispatchEvent(new Event('change')); }
+  saveAuthIds();
+  if($('auth_mode').value === 'pool') refreshPoolAccounts();
+};
+$('deleteAuthProfileBtn').onclick = async () => {
+  const id = $('authProfileSelect').value;
+  if(!id) return;
+  if(!confirm('Delete this saved tenant/app registration profile?')) return;
+  await fetch('/api/auth_profiles/'+id,{method:'DELETE'});
+  await loadAuthProfiles();
+};
+loadAuthProfiles();
 
 $('authBtn').onclick = async () => {
   saveAuthIds();

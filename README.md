@@ -107,13 +107,26 @@ later — but the engine itself stays here.
     `https://login.microsoftonline.com/common/oauth2/nativeclient` (and/or
     `http://localhost`, which Entra treats specially for public clients — matches
     any dynamically-chosen loopback port, needed for the A2A/MCP auth-code-flow probes)
-  - **"Allow public client flows"** = Yes
-  - **API permissions** → Power Platform API → **Delegated** →
-    `CopilotStudio.Copilots.Invoke` → admin-consented
-  - (Optional, only if you'll also explore the A2A/MCP channels) the same app
-    registration can additionally be granted `MCS.InvokeAsA2A` and/or
-    `MCS.InvokeAsMCP` against application ID `6f46e6ed-07bf-4616-80f0-47546850f654`
-    ("Microsoft Copilot Studio Agent as MCP channel") — see `probe_a2a.py` / `probe_mcp.py`.
+  - **"Allow public client flows"** = Yes — this is the important part. A
+    PUBLIC client (no secret) is both the simpler AND the more secure setup for
+    a locally-run tool: nothing to store/rotate on disk, every virtual user
+    signs in as themselves (MFA-compliant), and access is revocable per-user
+    instead of via one shared static credential. Only fall back to a
+    confidential/secret-based app registration (see "A2A/MCP via a
+    confidential client" below) if you must use a pre-existing registration
+    you don't control that was already configured that way.
+  - **API permissions** → **Delegated**, admin-consented:
+    - Power Platform API → `CopilotStudio.Copilots.Invoke` (for D2E)
+    - Microsoft Copilot Studio Agent MCP and A2A channels
+      (`6f46e6ed-07bf-4616-80f0-47546850f654`) → `MCS.InvokeAsA2A` and/or
+      `MCS.InvokeAsMCP` (for the A2A/MCP protocols)
+  - **One registration covers all three protocols.** You don't need separate
+    app registrations per protocol — add whichever scopes you plan to use to
+    the same registration, and set `"protocol"` in your config
+    (`"d2e"` / `"a2a"` / `"mcp"`) to pick which scope a given run authenticates
+    for. The tool's token cache is shared per tenant+client, so signing in
+    once lets you switch protocols without re-authenticating (as long as the
+    scope was admin-consented up front).
 - (Optional, for credit/billing queries) [Power Platform CLI (`pac`)](https://aka.ms/PowerPlatformCLI)
   installed and authenticated to the target tenant (`pac auth create --tenant <tenantId>`).
 - (Optional, for historical tool/connector enrichment) Dataverse access to the
@@ -121,28 +134,39 @@ later — but the engine itself stays here.
 
 ### Creating the app registration (one-time, per tenant)
 
-Using Azure CLI (adjust the tenant):
+Using Azure CLI (adjust the tenant; requires rights to create app
+registrations and grant admin consent in that tenant — if you don't have
+those rights, ask a tenant admin to run this once):
 
 ```powershell
-az login --tenant <yourTenantId> --allow-no-subscriptions --use-device-code
+az login --tenant <yourTenantId> --use-device-code
 
-# Power Platform API + the CopilotStudio.Copilots.Invoke delegated scope
-$ppapi = "8578e004-a5c6-46e7-913e-12f58912df43"
-$scopeId = (az ad sp show --id $ppapi --query "oauth2PermissionScopes[?value=='CopilotStudio.Copilots.Invoke'].id" -o tsv)
+# Power Platform API (D2E) + Copilot Studio A2A/MCP channels (both first-party,
+# multi-tenant resource apps -- same app IDs in every tenant)
+$ppapi  = "8578e004-a5c6-46e7-913e-12f58912df43"
+$a2amcp = "6f46e6ed-07bf-4616-80f0-47546850f654"
+
+$d2eScope = (az ad sp show --id $ppapi  --query "oauth2PermissionScopes[?value=='CopilotStudio.Copilots.Invoke'].id" -o tsv)
+$a2aScope = (az ad sp show --id $a2amcp --query "oauth2PermissionScopes[?value=='MCS.InvokeAsA2A'].id" -o tsv)
+$mcpScope = (az ad sp show --id $a2amcp --query "oauth2PermissionScopes[?value=='MCS.InvokeAsMCP'].id" -o tsv)
 
 @"
 [
-  { "resourceAppId": "$ppapi", "resourceAccess": [ { "id": "$scopeId", "type": "Scope" } ] }
+  { "resourceAppId": "$ppapi",  "resourceAccess": [ { "id": "$d2eScope", "type": "Scope" } ] },
+  { "resourceAppId": "$a2amcp", "resourceAccess": [
+      { "id": "$a2aScope", "type": "Scope" },
+      { "id": "$mcpScope", "type": "Scope" }
+  ] }
 ]
 "@ | Out-File rra.json -Encoding utf8
 
-$app = az ad app create --display-name "CopilotStudio-LoadTest" `
+$app = az ad app create --display-name "Copilot Studio Load Tester" `
   --sign-in-audience AzureADMyOrg --is-fallback-public-client true `
   --public-client-redirect-uris "http://localhost" "https://login.microsoftonline.com/common/oauth2/nativeclient" `
   --required-resource-accesses "@rra.json" -o json | ConvertFrom-Json
 
 az ad sp create --id $app.appId
-az ad app permission admin-consent --id $app.appId   # requires admin rights
+az ad app permission admin-consent --id $app.appId   # requires admin rights; grants tenant-wide, one time
 
 "Client ID: $($app.appId)"
 ```
@@ -150,9 +174,21 @@ az ad app permission admin-consent --id $app.appId   # requires admin rights
 > If your tenant blocks the Azure CLI's first-party app via Conditional Access,
 > try `Connect-MgGraph` (Microsoft Graph PowerShell) instead, or create the app
 > registration manually in the Entra admin center (App registrations → New
-> registration → Authentication → add the Mobile/desktop platform and enable
-> public client flows → API permissions → add the delegated scope above → grant
-> admin consent).
+> registration → Authentication → add the Mobile/desktop platform, add
+> `http://localhost` as a redirect URI, and enable public client flows → API
+> permissions → add the delegated scopes above → grant admin consent).
+
+#### A2A/MCP via a confidential client (fallback, not recommended)
+
+If you only have access to a **pre-existing** app registration that's
+confidential (client secret required, "Allow public client flows" = No) and
+can't create/modify a public-client registration in that tenant, the tool
+still supports it: set `auth_mode` to `a2a_confidential` or
+`mcp_confidential` and provide `client_secret` in the UI/config. This uses a
+manual OAuth2 authorization-code flow (`ConfidentialAuthCodeProvider` in
+`token_provider.py`) instead of device-code. Treat the secret as sensitive —
+it is never written to saved presets (stripped server-side), but you are
+responsible for not committing it to `config.json`.
 
 ### Install & run
 
@@ -204,10 +240,12 @@ parameter the engine actually reads.
 
 | Parameter | Meaning |
 |---|---|
-| `url` | The full D2E conversation URL pasted into the form; parsed client-side to auto-fill `host`/`schema` (not sent to the engine directly). |
+| `protocol` | `d2e` (default, Direct-to-Engine/Bot Framework activity protocol) or `a2a` (preview A2A streaming protocol — see "A2A / MCP exploration scripts" below for how this was discovered/validated). Determines which client (`D2EClient`/`A2AClient`) the engine builds and which delegated scope auth resolves to. |
+| `url` | The full D2E conversation URL pasted into the form; parsed client-side to auto-fill `host`/`schema` (not sent to the engine directly). Only used when `protocol=d2e`. |
 | `host` | The D2E endpoint hostname, e.g. `{env}.{region}.environment.api.powerplatform.com`. |
 | `schema` | The agent's Dataverse bot schema name (the `{schemaName}` segment of the D2E URL). |
 | `api_version` | D2E API version query param. Defaults to `2022-03-01-preview` in `D2EClient`; not currently a form field (edit the URL to change it). |
+| `a2a_url` | The A2A agent's base URL (or its `.well-known/agent-card.json` discovery URL — either works, auto-derived from the `url` field when `protocol=a2a`). Shape: `https://api.powerplatform.com/copilotstudio-a2a/tenants/{tenantId}/environments/{environmentId}/agents/{agentName}`. |
 | `environment_id` | The Dataverse environment GUID — used for Copilot Credit lookups (`pac licensing`), unrelated to the conversation call itself. |
 | `org_url` | The environment's Dataverse org URL (e.g. `https://orgxxxx.crm.dynamics.com`) — only used by the **Enrich tools** historical transcript lookup in Run History. |
 
@@ -215,9 +253,10 @@ parameter the engine actually reads.
 
 | Parameter | Meaning |
 |---|---|
-| `auth_mode` | `static` (paste a bearer token directly — fastest smoke test), `devicecode` (interactive MFA-compliant sign-in, single cached account), or `pool` (Account Pool — see below). |
+| `auth_mode` | `static` (paste a bearer token directly — fastest smoke test), `devicecode` (interactive MFA-compliant sign-in, single cached account), `pool` (Account Pool — see below), `a2a_confidential`/`mcp_confidential` (manual browser auth-code flow against a pre-existing CONFIDENTIAL/secret-required app registration — fallback only, see "Creating the app registration" above). |
 | `tenant_id` | Entra tenant GUID containing the agent and the app registration. |
-| `client_id` | The app registration's Application (client) ID. |
+| `client_id` | The app registration's Application (client) ID. One registration works for all protocols — see "Creating the app registration". |
+| `client_secret` | Only used when `auth_mode` is `a2a_confidential`/`mcp_confidential`. Never persisted to saved presets (stripped server-side in `/api/presets`). |
 | `static_token` | Only used when `auth_mode=static`: a bearer token pasted directly (e.g. from `pac auth` or browser devtools). Expires quickly — mainly for one-off smoke checks. |
 
 **Account Pool**: click **"+ Add account"** repeatedly (Live Test tab or Accounts
@@ -226,7 +265,10 @@ its own large, copy-friendly code callout. All pooled accounts share one persist
 MSAL cache; `engine.py` assigns each virtual user a **stable** pooled account for its
 whole session (via `get_token_for(key)`), so one conversation never switches identity
 mid-stream. The Accounts tab shows live token status (valid/expired) with accurate
-countdowns, and lets you remove accounts.
+countdowns, and lets you remove accounts. The pool resolves its scope from `protocol`
+(same app registration, same cached accounts — switching `protocol` between runs
+re-uses the signed-in accounts and silently acquires a token for the new scope,
+no re-sign-in needed, as long as that scope was admin-consented up front).
 
 ### Load mode & shape
 
@@ -315,48 +357,61 @@ runs populate it going forward.
 - The Flask dev server (`app.run(...)`) is explicitly **not production-grade** —
   this tool is single-user, single-machine, local-only by design.
 
-## A2A / MCP exploration scripts (experimental)
+## A2A streaming protocol (preview)
 
-Microsoft Copilot Studio recently (Oct 2026) began rolling out two new **preview**
-channels specifically for GHCP-harness agents — **A2A client** (Agent2Agent
-protocol) and **MCP client** (Model Context Protocol) — which would, if functional,
-provide a real external invocation path for agents the D2E endpoint rejects. These
-are gated to "early release cycle" Power Platform environments and are still being
-rolled out; as of this writing neither is fully functional end-to-end in our test
-tenant, but the auth/setup side is fully working and ready to retest at any time:
+Microsoft Copilot Studio added a **preview** A2A (Agent2Agent protocol)
+channel, giving a real external invocation path for agents even where it
+isn't needed for D2E — and, notably, for GHCP-harness agents that D2E
+rejects outright. As of this writing it's a staged rollout: some
+environments return `x-servicefabric: ResourceNotFound` (not provisioned
+yet) while others work end-to-end (`x-servicefabric: NoRetry`) — there is no
+way to tell from the Studio UI alone; the Agent Card discovery call
+(`GET {a2a_url}/.well-known/agent-card.json`, unauthenticated) is the
+fastest way to check which bucket a given environment is in.
+
+**This is now a first-class engine mode, not just exploration scripts** —
+set `protocol: "a2a"` in the dashboard/config and it runs through the same
+`LoadEngine`/`StatsAggregator`/Run History pipeline as D2E. See `a2a_client.py`
+for the real wire format (proto-JSON transcoded, PascalCase method names
+like `SendStreamingMessage` — **not** the generic A2A spec's lowercase
+`message/send`, which this endpoint rejects) and the error-handling matrix
+(soft failures like an empty-text completion, and the fact that a garbage
+`contextId` is silently accepted as a new conversation rather than erroring).
 
 | Script | What it tests |
 |---|---|
-| `probe_a2a.py` | A2A channel via device-code auth — base `message/send` call + Agent Card discovery (`/.well-known/agent-card.json`) |
-| `probe_a2a_authcode.py` | Same, but via a genuine browser-based OAuth 2.0 authorization-code flow (PKCE) — the grant type the official docs specifically require |
-| `probe_a2a_cli.py` | Same target, using an existing Microsoft first-party public client (Azure CLI's) instead of our own app registration — tests whether a custom app registration is strictly required |
-| `probe_a2a_sweep.py` | Protocol-variation sweep (alternate JSON-RPC method names, `api-version` guesses, `OPTIONS` probes) to rule out "calling it wrong" vs. "not provisioned yet" |
-| `probe_mcp.py` | MCP channel via the real `initialize`/`tools/list`/`tools/call` JSON-RPC methods |
+| `probe_a2a.py` / `probe_a2a_authcode.py` / `probe_a2a_cli.py` / `probe_a2a_sweep.py` | Earlier exploration against our own (then-unprovisioned) tenant — kept for reference; superseded by the scripts below once a working environment was found. |
+| `probe_mcp.py` | MCP channel exploration (`initialize`/`tools/list`/`tools/call`) against our own tenant. |
+| `probe_a2a_pfecrm.py` / `probe_a2a_pfecrm_sdk.py` | First successful end-to-end A2A conversation (confidential-client flow, then re-validated via Microsoft's official `a2a-sdk`) — this is where the real wire format above was discovered. |
+| `probe_a2a_errors_v2.py` | The error-scenario matrix referenced in `a2a_client.py`'s docstring (invalid token, malformed params, empty text, garbage contextId, etc.). |
+| `probe_mcp_pfecrm.py` | Full working MCP conversation + error scenarios, for comparing A2A vs. MCP error ergonomics (A2A recommended as primary — see `plan.md`/commit history for the full write-up). |
+| `probe_pfecrm_public_client.py` | Validates the proper no-secret public-client app registration pattern (see "Creating the app registration" above) actually works for A2A/MCP, not just D2E. |
 
-Current status (last verified 2026-10-22): A2A returns a bare infrastructure-level
-`404 ResourceNotFound`; MCP returns a clean, specific `{"code":-32000,"message":
-"The MCP endpoint is not enabled for this environment."}` — both with correctly-
-scoped, verified tokens. Treat these as periodic-retest scripts, not broken code —
-rerun any of them any time to check whether Microsoft's backend has caught up with
-the channel's UI availability.
+`ms_sample/` contains Microsoft's official reference client code
+(`a2a_client.py`, `mcp_client.py`, etc., from `microsoft/CopilotStudioSamples`)
+— useful as a ground-truth reference if a new environment behaves
+unexpectedly again.
 
 ## Repository layout
 
 ```
 app.py                  Flask server
-engine.py                Load engine (smoke / spike / stepped modes)
+engine.py                Load engine (smoke / spike / stepped modes; d2e or a2a protocol)
 stats.py                 Live stats aggregation (incl. peak concurrency)
 d2e_client.py             D2E HTTP client (SSE/JSON parsing, tool + harness-rejection detection)
-token_provider.py         Auth providers (static / device-code / ROPC / account pool)
+a2a_client.py             A2A HTTP client (SSE streaming, same TurnResult contract as D2E)
+token_provider.py         Auth providers (static / device-code / ROPC / account pool / confidential auth-code)
 run_store.py              SQLite persistence (runs, events, presets, trends, sessions)
 credits.py                pac licensing credit/consumption queries
 transcripts.py            Dataverse transcript enrichment (historical tool counts)
 templates/index.html      Web dashboard
 requirements.txt
-config.example.json       Example config for the legacy CLI tools below
+config.example.json       Example config (D2E)
+config.a2a.example.json   Example config (A2A)
 smoke_test.py / ramp.py  Original CLI tools (pre-UI); still usable standalone
-probe_a2a*.py             A2A channel exploration (see above)
-probe_mcp.py              MCP channel exploration (see above)
+probe_a2a*.py             A2A channel exploration/validation (see above)
+probe_mcp*.py             MCP channel exploration/validation (see above)
+ms_sample/                Microsoft's official A2A/MCP reference client code
 start_app.ps1/.bat        Desktop launcher (background start + auto-open browser)
 stop_app.bat              Stops the background server
 ```
@@ -364,3 +419,4 @@ stop_app.bat              Stops the background server
 ## License
 
 TBD — private repo for now.
+

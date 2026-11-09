@@ -16,7 +16,9 @@ import run_store
 from engine import LoadEngine
 from stats import StatsAggregator
 from token_provider import AccountPoolManager, DeviceCodeProvider, StaticTokenProvider
+from token_provider import SCOPE as SCOPE_DEFAULT
 from token_provider import build_provider as tp_build_provider
+from token_provider import scope_for_protocol as tp_scope_for_protocol
 
 app = Flask(__name__)
 
@@ -30,7 +32,11 @@ _state = {
     "provider": None,
     "auth_status": "none",   # none | pending | signed_in | error
     "auth_user": None,
-    "pool_manager": None,    # AccountPoolManager (lazily created, keyed by tenant+client)
+    "pool_managers": {},     # {(tenant_id, client_id, tuple(scope)): AccountPoolManager}
+                             # keyed dict (not a single slot) so switching between
+                             # tenants/app registrations never discards an
+                             # already-signed-in pool -- each tenant you've used
+                             # keeps its own live manager + account list.
 }
 _lock = threading.Lock()
 
@@ -66,10 +72,11 @@ def parse_a2a_endpoint(url: str) -> dict:
 
 def build_provider(cfg: dict):
     mode = cfg.get("auth_mode", "devicecode")
+    scope = tp_scope_for_protocol(cfg.get("protocol"))
     if mode == "static":
         return StaticTokenProvider(cfg["static_token"])
     if mode == "pool":
-        return _get_pool_manager(cfg["tenant_id"], cfg["client_id"])
+        return _get_pool_manager(cfg["tenant_id"], cfg["client_id"], scope)
     if mode in ("a2a_confidential", "mcp_confidential"):
         return tp_build_provider(cfg)
 
@@ -78,15 +85,18 @@ def build_provider(cfg: dict):
             _state["device_prompt"] = {"message": flow["message"],
                                        "url": flow.get("verification_uri"),
                                        "code": flow.get("user_code")}
-    return DeviceCodeProvider(cfg["tenant_id"], cfg["client_id"], prompt=prompt)
+    return DeviceCodeProvider(cfg["tenant_id"], cfg["client_id"], prompt=prompt, scope=scope)
 
 
-def _get_pool_manager(tenant_id: str, client_id: str) -> AccountPoolManager:
+def _get_pool_manager(tenant_id: str, client_id: str, scope: list[str] | None = None) -> AccountPoolManager:
+    scope = scope or SCOPE_DEFAULT
+    key = (tenant_id, client_id, tuple(scope))
     with _lock:
-        pm = _state.get("pool_manager")
-        if pm is None or pm.tenant_id != tenant_id or pm.client_id != client_id:
-            pm = AccountPoolManager(tenant_id, client_id)
-            _state["pool_manager"] = pm
+        pools = _state["pool_managers"]
+        pm = pools.get(key)
+        if pm is None:
+            pm = AccountPoolManager(tenant_id, client_id, scope=scope)
+            pools[key] = pm
         return pm
 
 
@@ -97,17 +107,19 @@ def api_pool_add():
     tenant_id, client_id = body.get("tenant_id"), body.get("client_id")
     if not tenant_id or not client_id:
         return jsonify({"error": "tenant_id and client_id are required"}), 400
-    pm = _get_pool_manager(tenant_id, client_id)
+    scope = tp_scope_for_protocol(body.get("protocol"))
+    pm = _get_pool_manager(tenant_id, client_id, scope)
     flow = pm.begin_add_account()
     return jsonify(flow)
 
 
 @app.route("/api/pool/status")
 def api_pool_status():
-    with _lock:
-        pm = _state.get("pool_manager")
-    if not pm:
+    tenant_id, client_id = request.args.get("tenant_id"), request.args.get("client_id")
+    if not tenant_id or not client_id:
         return jsonify({"status": "none"})
+    scope = tp_scope_for_protocol(request.args.get("protocol"))
+    pm = _get_pool_manager(tenant_id, client_id, scope)
     return jsonify(pm.pending_status())
 
 
@@ -115,21 +127,22 @@ def api_pool_status():
 def api_pool_accounts():
     tenant_id = request.args.get("tenant_id")
     client_id = request.args.get("client_id")
-    if tenant_id and client_id:
-        pm = _get_pool_manager(tenant_id, client_id)
-    else:
-        with _lock:
-            pm = _state.get("pool_manager")
-    return jsonify(pm.list_accounts() if pm else [])
+    if not tenant_id or not client_id:
+        return jsonify([])
+    scope = tp_scope_for_protocol(request.args.get("protocol"))
+    pm = _get_pool_manager(tenant_id, client_id, scope)
+    return jsonify(pm.list_accounts())
 
 
 @app.route("/api/pool/remove", methods=["POST"])
 def api_pool_remove():
     body = request.json or {}
-    with _lock:
-        pm = _state.get("pool_manager")
-    if pm:
-        pm.remove_account(body.get("home_account_id"))
+    tenant_id, client_id = body.get("tenant_id"), body.get("client_id")
+    if not tenant_id or not client_id:
+        return jsonify({"error": "tenant_id and client_id are required"}), 400
+    scope = tp_scope_for_protocol(body.get("protocol"))
+    pm = _get_pool_manager(tenant_id, client_id, scope)
+    pm.remove_account(body.get("home_account_id"))
     return jsonify({"ok": True})
 
 
@@ -228,10 +241,17 @@ def api_start():
         run = run_store.new_run(cfg)
         stats = StatsAggregator(on_record=lambda kind, result:
                                 run_store.record_event(run["id"], kind, result))
-        # Reuse a pre-authenticated provider when available and compatible.
+        # Reuse a pre-authenticated provider when available and compatible --
+        # must match tenant, client, AND scope (protocol), not just client_id,
+        # otherwise a provider authenticated for a different tenant or a
+        # different protocol's scope would be silently reused and fail (or
+        # worse, silently hit the wrong tenant's agent).
         prov = _state.get("provider")
+        want_scope = tp_scope_for_protocol(cfg.get("protocol"))
         if cfg.get("auth_mode") == "devicecode" and prov is not None \
-                and getattr(prov, "client_id", None) == cfg.get("client_id"):
+                and getattr(prov, "client_id", None) == cfg.get("client_id") \
+                and getattr(prov, "tenant_id", None) == cfg.get("tenant_id") \
+                and getattr(prov, "scope", None) == want_scope:
             provider = prov
         else:
             provider = build_provider(cfg)
@@ -459,6 +479,43 @@ def api_presets_get(preset_id):
 @app.route("/api/presets/<preset_id>", methods=["DELETE"])
 def api_presets_delete(preset_id):
     run_store.delete_preset(preset_id)
+    return jsonify({"ok": True})
+
+
+# ---- auth profiles (named tenant_id/client_id/auth_mode combos) -----------
+# Independent of load-test presets: lets you switch between tenants/app
+# registrations (e.g. a DIAx profile and a PFECRM profile) without retyping
+# GUIDs or hunting through unrelated saved load configs. Never stores
+# client_secret -- same policy as presets.
+
+@app.route("/api/auth_profiles", methods=["GET"])
+def api_auth_profiles_list():
+    return jsonify(run_store.list_auth_profiles())
+
+
+@app.route("/api/auth_profiles", methods=["POST"])
+def api_auth_profiles_save():
+    body = request.json or {}
+    name = (body.get("name") or "").strip()
+    tenant_id = (body.get("tenant_id") or "").strip()
+    client_id = (body.get("client_id") or "").strip()
+    if not name or not tenant_id or not client_id:
+        return jsonify({"error": "name, tenant_id, and client_id are required"}), 400
+    profile = run_store.save_auth_profile(
+        name, tenant_id, client_id, body.get("auth_mode", "pool"),
+        body.get("note", ""), body.get("id"))
+    return jsonify(profile)
+
+
+@app.route("/api/auth_profiles/<profile_id>", methods=["GET"])
+def api_auth_profiles_get(profile_id):
+    p = run_store.get_auth_profile(profile_id)
+    return (jsonify(p), 200) if p else (jsonify({"error": "not found"}), 404)
+
+
+@app.route("/api/auth_profiles/<profile_id>", methods=["DELETE"])
+def api_auth_profiles_delete(profile_id):
+    run_store.delete_auth_profile(profile_id)
     return jsonify({"ok": True})
 
 

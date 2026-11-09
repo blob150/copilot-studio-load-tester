@@ -1,0 +1,19 @@
+{
+  "_comment": "A2A protocol example. Copy to config.json and fill in. Never commit real secrets.",
+  "protocol": "a2a",
+  "a2a_url": "https://api.powerplatform.com/copilotstudio-a2a/tenants/<TENANT_GUID>/environments/<ENVIRONMENT_GUID>/agents/<AGENT_NAME>",
+
+  "tenant_id": "<TENANT_GUID>",
+  "client_id": "<ENTRA_APP_REGISTRATION_CLIENT_ID>",
+
+  "auth_mode": "devicecode",
+  "_auth_mode_note": "Use 'devicecode' (single account) or 'pool' (multi-account wizard, recommended for load tests). Both work with a PUBLIC CLIENT app registration -- no secret needed. See README 'App registration' section for how to create one with the A2A/MCP scopes pre-consented. Only use 'a2a_confidential'/'mcp_confidential' if you must use a pre-existing CONFIDENTIAL (secret-required) app registration you don't control.",
+
+  "prompts": [
+    "Hello, can you tell me what you can help with?",
+    "What is 2+2?"
+  ],
+
+  "think_time_seconds": [5, 15],
+  "turns_per_session": 4
+}

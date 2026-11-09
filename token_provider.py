@@ -18,6 +18,7 @@ Design rule: mint ONCE per identity, cache, reuse. Never re-auth per request (AA
 """
 from __future__ import annotations
 
+import json
 import threading
 import time
 from dataclasses import dataclass, field
@@ -51,6 +52,53 @@ def _load_cache(path: Path = _CACHE_PATH) -> msal.SerializableTokenCache:
 def _save_cache(cache: msal.SerializableTokenCache, path: Path = _CACHE_PATH) -> None:
     if cache.has_state_changed:
         path.write_text(cache.serialize())
+
+
+def _migrate_legacy_cache_once(new_path: Path, client_id: str) -> None:
+    """One-time, best-effort migration for the switch from one shared
+    `.token_cache.bin` (used by every tenant/app registration before
+    per-identity cache files existed) to per-(tenant_id, client_id) files.
+    Without this, a user who already signed in before this change would
+    silently lose their cached sign-in and have to re-authenticate the next
+    time they run the tool, with no indication why. Copies across ONLY the
+    credential entries (AccessToken/RefreshToken/IdToken/AppMetadata) that
+    actually belong to this client_id, plus the Account entries that those
+    credentials reference -- NOT the whole legacy file, which would just
+    reintroduce the cross-tenant clutter this change fixes (MSAL's Account
+    records are shared/SSO-scoped, not client_id-scoped, so copying them
+    unfiltered would make unrelated tenants' accounts show up again)."""
+    if new_path.exists() or not _CACHE_PATH.exists():
+        return
+    try:
+        legacy = json.loads(_CACHE_PATH.read_text())
+    except (OSError, json.JSONDecodeError):
+        return
+
+    credential_sections = ("AccessToken", "RefreshToken", "IdToken")
+    migrated: dict = {}
+    home_account_ids: set[str] = set()
+    for section in credential_sections:
+        entries = legacy.get(section) or {}
+        kept = {k: v for k, v in entries.items() if v.get("client_id") == client_id}
+        if kept:
+            migrated[section] = kept
+            home_account_ids.update(v.get("home_account_id") for v in kept.values()
+                                    if v.get("home_account_id"))
+    if not home_account_ids:
+        return  # nothing in the legacy cache belongs to this client_id -- normal case
+    accounts = legacy.get("Account") or {}
+    kept_accounts = {k: v for k, v in accounts.items()
+                     if v.get("home_account_id") in home_account_ids}
+    if kept_accounts:
+        migrated["Account"] = kept_accounts
+    app_meta = legacy.get("AppMetadata") or {}
+    kept_meta = {k: v for k, v in app_meta.items() if v.get("client_id") == client_id}
+    if kept_meta:
+        migrated["AppMetadata"] = kept_meta
+    try:
+        new_path.write_text(json.dumps(migrated))
+    except OSError:
+        pass
 
 
 class TokenProvider:
@@ -99,7 +147,17 @@ class DeviceCodeProvider(_MsalBase):
                  scope: list[str] | None = None):
         super().__init__(tenant_id, client_id)
         self.scope = scope or SCOPE
-        self._cache = _load_cache()
+        # Per tenant+client cache file (NOT the shared legacy _CACHE_PATH) --
+        # MSAL's "Account" cache entries are env/tenant-scoped SSO artifacts,
+        # not client_id-scoped, so sharing one file across different app
+        # registrations/tenants makes get_accounts() return OTHER tenants'
+        # accounts too (they show up as "expired" since no token exists for
+        # this app, but they clutter the pool/Accounts-tab listing and make
+        # switching tenants look broken/hardwired). A dedicated file per
+        # (tenant_id, client_id) avoids that entirely.
+        self._cache_path = _cache_path_for(tenant_id, client_id, "devicecode")
+        _migrate_legacy_cache_once(self._cache_path, client_id)
+        self._cache = _load_cache(self._cache_path)
         self._app = msal.PublicClientApplication(
             client_id, authority=AUTHORITY_TEMPLATE.format(tenant_id=tenant_id),
             token_cache=self._cache,
@@ -114,24 +172,26 @@ class DeviceCodeProvider(_MsalBase):
             if accounts:
                 silent = self._app.acquire_token_silent(self.scope, account=accounts[0])
                 if silent and "access_token" in silent:
-                    _save_cache(self._cache)
+                    _save_cache(self._cache, self._cache_path)
                     return self._store(silent)
             flow = self._app.initiate_device_flow(scopes=self.scope)
             if "user_code" not in flow:
                 raise RuntimeError(f"Device flow failed to start: {flow}")
             self._prompt(flow)
             result = self._app.acquire_token_by_device_flow(flow)
-            _save_cache(self._cache)
+            _save_cache(self._cache, self._cache_path)
             return self._store(result)
 
 
 class RopcProvider(_MsalBase):
     """Non-interactive username/password. Account MUST be MFA/CA-excluded."""
 
-    def __init__(self, tenant_id: str, client_id: str, username: str, password: str):
+    def __init__(self, tenant_id: str, client_id: str, username: str, password: str,
+                 scope: list[str] | None = None):
         super().__init__(tenant_id, client_id)
         self.username = username
         self.password = password
+        self.scope = scope or SCOPE
         self._app = msal.PublicClientApplication(
             client_id, authority=AUTHORITY_TEMPLATE.format(tenant_id=tenant_id)
         )
@@ -141,7 +201,7 @@ class RopcProvider(_MsalBase):
             if self._valid():
                 return self._token
             result = self._app.acquire_token_by_username_password(
-                self.username, self.password, scopes=SCOPE
+                self.username, self.password, scopes=self.scope
             )
             return self._store(result)
 
@@ -181,11 +241,18 @@ class AccountPoolManager(TokenProvider):
     (or sign out of the browser first) when prompted.
     """
 
-    def __init__(self, tenant_id: str, client_id: str):
+    def __init__(self, tenant_id: str, client_id: str, scope: list[str] | None = None):
         self.tenant_id = tenant_id
         self.client_id = client_id
+        self.scope = scope or SCOPE
         self._lock = threading.Lock()
-        self._cache = _load_cache()
+        # Per tenant+client cache file -- see the matching comment on
+        # DeviceCodeProvider.__init__ for why this isn't the shared legacy
+        # _CACHE_PATH (prevents other tenants' SSO accounts from bleeding
+        # into this pool's listing).
+        self._cache_path = _cache_path_for(tenant_id, client_id, "pool")
+        _migrate_legacy_cache_once(self._cache_path, client_id)
+        self._cache = _load_cache(self._cache_path)
         self._app = msal.PublicClientApplication(
             client_id, authority=AUTHORITY_TEMPLATE.format(tenant_id=tenant_id),
             token_cache=self._cache,
@@ -205,7 +272,7 @@ class AccountPoolManager(TokenProvider):
             exp = self._expiry.get(haid)
             status = "unknown"
             try:
-                result = self._app.acquire_token_silent(SCOPE, account=a)
+                result = self._app.acquire_token_silent(self.scope, account=a)
                 if result and "access_token" in result:
                     exp = time.time() + int(result.get("expires_in", 3600))
                     with self._lock:
@@ -232,7 +299,7 @@ class AccountPoolManager(TokenProvider):
         with self._lock:
             if self._pending and self._pending.get("status") == "pending":
                 return dict(self._pending)
-            flow = self._app.initiate_device_flow(scopes=SCOPE)
+            flow = self._app.initiate_device_flow(scopes=self.scope)
             if "user_code" not in flow:
                 raise RuntimeError(f"Device flow failed to start: {flow}")
             self._pending = {"status": "pending", "user_code": flow["user_code"],
@@ -243,7 +310,7 @@ class AccountPoolManager(TokenProvider):
         def worker():
             try:
                 result = self._app.acquire_token_by_device_flow(flow)
-                _save_cache(self._cache)
+                _save_cache(self._cache, self._cache_path)
                 with self._lock:
                     if "access_token" in result:
                         claims = result.get("id_token_claims", {}) or {}
@@ -270,7 +337,7 @@ class AccountPoolManager(TokenProvider):
             for a in self._app.get_accounts():
                 if a.get("home_account_id") == home_account_id:
                     self._app.remove_account(a)
-            _save_cache(self._cache)
+            _save_cache(self._cache, self._cache_path)
 
     def _accounts(self) -> list:
         with self._lock:
@@ -283,7 +350,7 @@ class AccountPoolManager(TokenProvider):
         if not accounts:
             raise RuntimeError("No accounts in the pool yet. Add at least one via the wizard.")
         account = accounts[hash(key) % len(accounts)]
-        result = self._app.acquire_token_silent(SCOPE, account=account)
+        result = self._app.acquire_token_silent(self.scope, account=account)
         if not result or "access_token" not in result:
             raise RuntimeError(
                 f"Silent refresh failed for {account.get('username')}; re-add this "
@@ -298,7 +365,7 @@ class AccountPoolManager(TokenProvider):
         with self._lock:
             account = accounts[self._rr_idx % len(accounts)]
             self._rr_idx += 1
-        result = self._app.acquire_token_silent(SCOPE, account=account)
+        result = self._app.acquire_token_silent(self.scope, account=account)
         if not result or "access_token" not in result:
             raise RuntimeError(f"Silent refresh failed for {account.get('username')}")
         return result["access_token"]
@@ -386,20 +453,36 @@ class ConfidentialAuthCodeProvider(_MsalBase):
             return self._store(result)
 
 
+def scope_for_protocol(protocol: str) -> list[str]:
+    """Resolve the delegated scope list for a config's protocol. A single
+    app registration can hold all three scopes simultaneously (see README) --
+    this just selects which one a given run authenticates for."""
+    p = (protocol or "d2e").lower()
+    if p == "a2a":
+        return A2A_SCOPE
+    if p == "mcp":
+        return MCP_SCOPE
+    return SCOPE
+
+
 def build_provider(cfg: dict) -> TokenProvider:
     """Factory from config dict. mode: static | devicecode | ropc |
     a2a_confidential | mcp_confidential. The two *_confidential modes are
     for A2A/MCP channels against an existing confidential-client app
-    registration (client_secret required) -- see ConfidentialAuthCodeProvider."""
+    registration (client_secret required) -- see ConfidentialAuthCodeProvider.
+    devicecode/ropc resolve their scope from cfg["protocol"] (d2e/a2a/mcp),
+    so the SAME public-client app registration (and its persisted token
+    cache) can serve any protocol -- see README "App registration" section."""
     mode = cfg.get("auth_mode", "devicecode").lower()
+    scope = scope_for_protocol(cfg.get("protocol"))
     if mode == "static":
         return StaticTokenProvider(cfg["static_token"])
     if mode == "ropc":
         acct = cfg["accounts"][0]
         return RopcProvider(cfg["tenant_id"], cfg["client_id"],
-                            acct["username"], acct["password"])
+                            acct["username"], acct["password"], scope=scope)
     if mode == "devicecode":
-        return DeviceCodeProvider(cfg["tenant_id"], cfg["client_id"])
+        return DeviceCodeProvider(cfg["tenant_id"], cfg["client_id"], scope=scope)
     if mode == "a2a_confidential":
         return ConfidentialAuthCodeProvider(
             cfg["tenant_id"], cfg["client_id"], cfg["client_secret"],
