@@ -399,14 +399,20 @@ What are the steps to file an incident report?</textarea>
 
 <script>
 const $ = id => document.getElementById(id);
+const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 let polling = null;
 
 // --- shared tenant/client identity: persisted so every tab/reload stays in sync,
 // instead of a fragile one-time copy between tabs at the moment you switch. ---
 function saveAuthIds(){
   const t = $('tenant_id').value.trim(), c = $('client_id').value.trim();
-  if(t) localStorage.setItem('lastTenantId', t);
-  if(c) localStorage.setItem('lastClientId', c);
+  // Only ever persist values that look like real GUIDs -- a mistaken paste
+  // (e.g. the agent/endpoint URL instead of the tenant GUID) used to get
+  // saved here and then silently kept re-populating the fields on every
+  // future page load, making the mistake effectively permanent until
+  // someone thought to check localStorage.
+  if(t && GUID_RE.test(t)) localStorage.setItem('lastTenantId', t);
+  if(c && GUID_RE.test(c)) localStorage.setItem('lastClientId', c);
 }
 function loadAuthIds(){
   const t = localStorage.getItem('lastTenantId'), c = localStorage.getItem('lastClientId');
@@ -546,15 +552,54 @@ function fallbackCopy(text, onSuccess){
 async function startAddAccount(tenantId, clientId, statusElId, onDone){
   const statusEl = $(statusElId);
   if(!tenantId || !clientId){ alert('Enter Tenant ID and Client ID first.'); return; }
+  // Catch the single most common mistake here early with a clear message --
+  // pasting the agent/endpoint URL into Tenant ID or Client ID (easy to do,
+  // since the URL field is right above these) used to fail deep inside
+  // MSAL with a cryptic server error and no visible sign of what went
+  // wrong; this stops it before any network call happens.
+  if(!GUID_RE.test(tenantId.trim())){
+    alert('Tenant ID doesn\'t look like a GUID (expected xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).\n\nGot: '+tenantId+'\n\nDid you paste the agent/endpoint URL by mistake? Tenant ID and Client ID should be just the GUID.');
+    return;
+  }
+  if(!GUID_RE.test(clientId.trim())){
+    alert('Client ID doesn\'t look like a GUID (expected xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).\n\nGot: '+clientId);
+    return;
+  }
   const protocol = $('protocol') ? $('protocol').value : 'd2e';
   statusEl.textContent = 'Starting sign-in…';
   let lastRenderedCode = null;
-  await fetch('/api/pool/add',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({tenant_id:tenantId, client_id:clientId, protocol})});
+  try {
+    const addResp = await fetch('/api/pool/add',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({tenant_id:tenantId, client_id:clientId, protocol})});
+    if(!addResp.ok){
+      const body = await addResp.json().catch(()=>({error:'Request failed ('+addResp.status+')'}));
+      statusEl.textContent = '✗ '+(body.error || 'Could not start sign-in.');
+      return;
+    }
+  } catch(e){
+    statusEl.textContent = '✗ Could not reach the server: '+e.message;
+    return;
+  }
   const poll = setInterval(async () => {
-    const r = await fetch('/api/pool/status?tenant_id='+encodeURIComponent(tenantId)
-      +'&client_id='+encodeURIComponent(clientId)+'&protocol='+encodeURIComponent(protocol));
-    const s = await r.json();
+    let s;
+    try {
+      const r = await fetch('/api/pool/status?tenant_id='+encodeURIComponent(tenantId)
+        +'&client_id='+encodeURIComponent(clientId)+'&protocol='+encodeURIComponent(protocol));
+      if(!r.ok){
+        const body = await r.json().catch(()=>({error:'Request failed ('+r.status+')'}));
+        statusEl.textContent = '✗ '+(body.error || 'Sign-in failed.');
+        clearInterval(poll);
+        return;
+      }
+      s = await r.json();
+    } catch(e){
+      // Network error or a non-JSON response slipping through -- surface it
+      // instead of leaving "Starting sign-in..." on screen forever with no
+      // further indication that anything failed.
+      statusEl.textContent = '✗ Lost contact with the server while waiting for sign-in: '+e.message;
+      clearInterval(poll);
+      return;
+    }
     if(s.status==='pending' && s.user_code){
       // Only (re)build the box when the code actually changes -- otherwise this
       // 1.5s poll wipes out the "Copy code" button's transient "✓ Copied" state
@@ -832,11 +877,46 @@ $('applyPromptSetBtn').onclick = () => {
 
 $('authBtn').onclick = async () => {
   saveAuthIds();
+  const tenantId = $('tenant_id').value.trim(), clientId = $('client_id').value.trim();
+  if($('auth_mode').value !== 'static'){
+    if(!GUID_RE.test(tenantId)){
+      alert('Tenant ID doesn\'t look like a GUID (expected xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).\n\nGot: '+tenantId+'\n\nDid you paste the agent/endpoint URL by mistake?');
+      return;
+    }
+    if(!GUID_RE.test(clientId)){
+      alert('Client ID doesn\'t look like a GUID (expected xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).\n\nGot: '+clientId);
+      return;
+    }
+  }
   $('authState').textContent = 'Starting sign-in…';
-  await fetch('/api/authenticate',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(cfg())});
+  try {
+    const resp = await fetch('/api/authenticate',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(cfg())});
+    const body = await resp.json().catch(()=>({error:'Request failed ('+resp.status+')'}));
+    if(!resp.ok){
+      $('authState').textContent = '✗ '+(body.error || 'Could not start sign-in.');
+      return;
+    }
+  } catch(e){
+    $('authState').textContent = '✗ Could not reach the server: '+e.message;
+    return;
+  }
   const ap = setInterval(async () => {
-    const r = await fetch('/api/auth_status'); const a = await r.json();
+    let a;
+    try {
+      const r = await fetch('/api/auth_status');
+      if(!r.ok){
+        const body = await r.json().catch(()=>({error:'Request failed ('+r.status+')'}));
+        $('authState').textContent = '✗ '+(body.error || 'Sign-in failed.');
+        clearInterval(ap);
+        return;
+      }
+      a = await r.json();
+    } catch(e){
+      $('authState').textContent = '✗ Lost contact with the server while waiting for sign-in: '+e.message;
+      clearInterval(ap);
+      return;
+    }
     if(a.device_prompt && a.status==='pending'){
       $('authState').innerHTML = `Open <a href="${a.device_prompt.url}" target="_blank">${a.device_prompt.url}</a> and enter <code>${a.device_prompt.code}</code>`;
     }

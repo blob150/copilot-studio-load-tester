@@ -22,6 +22,25 @@ from token_provider import scope_for_protocol as tp_scope_for_protocol
 
 app = Flask(__name__)
 
+
+@app.errorhandler(Exception)
+def _api_json_errors(e):
+    """Any unhandled exception on an /api/* route returns a JSON body
+    instead of Flask's default HTML error page. Without this, a server-side
+    failure (e.g. a malformed tenant_id/client_id causing MSAL to raise)
+    made `await r.json()` in the frontend throw an uncaught parse error
+    inside a setInterval poll loop -- which silently killed the poll with
+    NO visible error, leaving the UI stuck on "Starting sign-in..." forever
+    with no indication anything had gone wrong. Non-API routes (just the
+    one HTML page here) fall through to Flask's normal error handling."""
+    if request.path.startswith("/api/"):
+        import traceback
+        app.logger.error("Unhandled error on %s: %s", request.path, e)
+        traceback.print_exc()
+        return jsonify({"error": str(e) or e.__class__.__name__}), 500
+    raise e
+
+
 # --- global current-run state ---------------------------------------------
 _state = {
     "engine": None,
@@ -112,12 +131,21 @@ def _get_pool_manager(tenant_id: str, client_id: str, scope: list[str] | None = 
     scope = scope or SCOPE_DEFAULT
     key = (tenant_id, client_id, tuple(scope))
     with _lock:
-        pools = _state["pool_managers"]
-        pm = pools.get(key)
-        if pm is None:
-            pm = AccountPoolManager(tenant_id, client_id, scope=scope)
-            pools[key] = pm
+        pm = _state["pool_managers"].get(key)
+    if pm is not None:
         return pm
+    # Construct OUTSIDE the global lock -- AccountPoolManager's constructor
+    # can make a real network call (MSAL authority/OIDC discovery), which is
+    # slow-to-fail for a malformed tenant_id/client_id (rather than failing
+    # instantly). Holding _lock across that would serialize EVERY other
+    # request behind one bad/slow input -- e.g. a client repeatedly retrying
+    # a bad value every 1.5s (as the pool-add polling loop does) could stall
+    # unrelated requests for the whole app. A harmless duplicate construction
+    # in a rare race is fine -- cheap, and the dict assignment is atomic.
+    pm = AccountPoolManager(tenant_id, client_id, scope=scope)
+    with _lock:
+        _state["pool_managers"].setdefault(key, pm)
+        return _state["pool_managers"][key]
 
 
 @app.route("/api/pool/add", methods=["POST"])
@@ -226,7 +254,22 @@ def api_authenticate():
                             "device_prompt": _state["device_prompt"]})
         _state["auth_status"] = "pending"
         _state["device_prompt"] = None
+    try:
+        # build_provider can raise (e.g. a malformed tenant_id/client_id
+        # makes MSAL's constructor fail, sometimes only after a slow-to-fail
+        # network call for authority/OIDC discovery) -- deliberately called
+        # OUTSIDE _lock so a slow/bad input here can't stall every other
+        # request in the app behind this one. Without the try/except,
+        # auth_status was left stuck at "pending" forever -- which also
+        # permanently blocked all FUTURE "Authenticate now" attempts, since
+        # the early-return above treats "pending" as already-in-progress.
         provider = build_provider(cfg)
+    except Exception as e:
+        with _lock:
+            _state["auth_status"] = "error"
+            _state["auth_user"] = str(e)[:300]
+        return jsonify({"status": "error", "error": str(e)[:300]}), 400
+    with _lock:
         _state["provider"] = provider
 
     def do_auth():
