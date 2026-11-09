@@ -433,6 +433,25 @@ $('tenant_id').addEventListener('change', saveAuthIds);
 $('client_id').addEventListener('change', saveAuthIds);
 loadAuthIds();
 
+// auth_mode was previously NOT persisted anywhere -- every page reload
+// silently reset it back to the first <option> ("Device code"), even if
+// you'd deliberately picked "Account pool" and signed in multiple accounts
+// earlier. That made a real, already-configured pool setup look broken
+// ("why is it demanding Authenticate now for one user?") when actually the
+// page had just forgotten your choice. Persist/restore it the same way as
+// tenant/client so your last choice survives reloads.
+function saveAuthMode(){
+  localStorage.setItem('lastAuthMode', $('auth_mode').value);
+}
+function loadAuthMode(){
+  const m = localStorage.getItem('lastAuthMode');
+  if(m && Array.from($('auth_mode').options).some(o=>o.value===m)){
+    $('auth_mode').value = m;
+  }
+}
+$('auth_mode').addEventListener('change', saveAuthMode);
+loadAuthMode();
+
 // tabs
 document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
