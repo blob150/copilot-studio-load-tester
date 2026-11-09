@@ -384,42 +384,63 @@ def api_start():
         # merely doing post-run credit/enrichment work must not block a new run.
         if thread_busy and load_running:
             return jsonify({"error": "A run is already in progress."}), 409
-
-        # Reuse a pre-authenticated provider when available and compatible --
-        # must match tenant, client, AND scope (protocol), not just client_id,
-        # otherwise a provider authenticated for a different tenant or a
-        # different protocol's scope would be silently reused and fail (or
-        # worse, silently hit the wrong tenant's agent).
         prov = _state.get("provider")
-        want_scope = tp_scope_for_protocol(cfg.get("protocol"))
-        if cfg.get("auth_mode") == "devicecode" and prov is not None \
-                and getattr(prov, "client_id", None) == cfg.get("client_id") \
-                and getattr(prov, "tenant_id", None) == cfg.get("tenant_id") \
-                and getattr(prov, "scope", None) == want_scope:
-            provider = prov
-        else:
-            provider = build_provider(cfg)
 
-        # Hard-fail BEFORE creating a run record or starting any virtual user
-        # threads if this provider would need an interactive sign-in
-        # (device-code or a confidential auth-code flow) mid-run. Every
-        # virtual user thread shares the SAME provider instance, and its
-        # internal lock is held for the ENTIRE interactive flow (up to ~15
-        # minutes for device code) -- so the first thread blocks waiting for
-        # you to sign in, and every other thread blocks behind it, with the
-        # running test showing "N active, 0 completed" forever and no
-        # visible prompt (see plan.md 2026-11-09 "A2A smoke test appeared
-        # stuck"). Pool mode already fails fast via get_token_for's
-        # RuntimeError, so it's exempt from this check.
-        has_check = getattr(provider, "has_cached_token", None)
-        if has_check is not None and not has_check():
-            return jsonify({
-                "error": "This app registration/tenant has no cached sign-in yet. "
-                         "Click \"Authenticate now\" and complete the sign-in prompt "
-                         "BEFORE starting a run with more than one session -- "
-                         "otherwise every virtual user blocks waiting behind the "
-                         "same interactive sign-in with no visible progress."
-            }), 400
+    # Reuse a pre-authenticated provider when available and compatible --
+    # must match tenant, client, AND scope (protocol), not just client_id,
+    # otherwise a provider authenticated for a different tenant or a
+    # different protocol's scope would be silently reused and fail (or
+    # worse, silently hit the wrong tenant's agent).
+    want_scope = tp_scope_for_protocol(cfg.get("protocol"))
+    if cfg.get("auth_mode") == "devicecode" and prov is not None \
+            and getattr(prov, "client_id", None) == cfg.get("client_id") \
+            and getattr(prov, "tenant_id", None) == cfg.get("tenant_id") \
+            and getattr(prov, "scope", None) == want_scope:
+        provider = prov
+    else:
+        # Deliberately called OUTSIDE _lock: build_provider() can end up in
+        # _get_pool_manager(), which acquires _lock itself. _lock is a plain
+        # (non-reentrant) threading.Lock, so calling it again from a thread
+        # that already holds it self-deadlocks PERMANENTLY -- that thread
+        # never releases the lock again, which in turn freezes every other
+        # request in the app that touches _lock (including a plain GET
+        # /api/status), making "Start Test" look like it does nothing at
+        # all when in fact the whole server silently wedged. Constructing
+        # providers only ever needs to happen once per tenant/client/scope
+        # combo (cached in _state["pool_managers"]), so there is no
+        # correctness reason for this to be inside the critical section.
+        provider = build_provider(cfg)
+
+    # Hard-fail BEFORE creating a run record or starting any virtual user
+    # threads if this provider would need an interactive sign-in
+    # (device-code or a confidential auth-code flow) mid-run. Every
+    # virtual user thread shares the SAME provider instance, and its
+    # internal lock is held for the ENTIRE interactive flow (up to ~15
+    # minutes for device code) -- so the first thread blocks waiting for
+    # you to sign in, and every other thread blocks behind it, with the
+    # running test showing "N active, 0 completed" forever and no
+    # visible prompt (see plan.md 2026-11-09 "A2A smoke test appeared
+    # stuck"). Pool mode already fails fast via get_token_for's
+    # RuntimeError, so it's exempt from this check.
+    has_check = getattr(provider, "has_cached_token", None)
+    if has_check is not None and not has_check():
+        return jsonify({
+            "error": "This app registration/tenant has no cached sign-in yet. "
+                     "Click \"Authenticate now\" and complete the sign-in prompt "
+                     "BEFORE starting a run with more than one session -- "
+                     "otherwise every virtual user blocks waiting behind the "
+                     "same interactive sign-in with no visible progress."
+        }), 400
+
+    with _lock:
+        # Re-check "already running" -- a race is possible between the first
+        # check above and now (another request could have started a run
+        # while this one was building its provider), and this is cheap
+        # insurance against double-starting.
+        prev = _state.get("stats")
+        thread_busy = _state["thread"] and _state["thread"].is_alive()
+        if thread_busy and prev is not None and prev.running:
+            return jsonify({"error": "A run is already in progress."}), 409
 
         _state["device_prompt"] = None
         run = run_store.new_run(cfg)

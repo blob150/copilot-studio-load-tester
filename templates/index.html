@@ -487,23 +487,32 @@ let allAccountsCache = [];
 async function openAccountsTab(){
   await loadAllAccountsCache();
   // Build the filter dropdown from whatever tenants actually have accounts
-  // or a saved Auth profile, defaulting the selection to the Live Test
-  // tab's current tenant (falling back to "All tenants" if that tenant
-  // isn't known yet, e.g. nothing signed in for it).
-  const liveTenant = $('tenant_id').value.trim();
+  // or a saved Auth profile. ALWAYS actively re-derive the selection from
+  // the Live Test tab's current tenant on every open -- deliberately NOT
+  // "sticky" to whatever was selected last time. A sticky fallback to "All
+  // tenants" the first time the live tenant happened to be unknown (e.g. a
+  // timing hiccup, or the field being blank for a moment) would otherwise
+  // get permanently stuck there on every future visit, since "All tenants"
+  // is always a valid option to fall back to -- exactly the complaint this
+  // fixes ("it should never say all tenants by default").
+  const liveTenant = $('tenant_id').value.trim().toLowerCase();
   const known = new Map(); // tenant_id -> label
   allAccountsCache.forEach(a => known.set(a.tenant_id, a.profile_name || shortTenant(a.tenant_id)));
   (authProfilesCache||[]).forEach(p => { if(!known.has(p.tenant_id)) known.set(p.tenant_id, p.name); });
   const sel = $('acctTenantFilter');
-  const prevValue = sel.value;
-  sel.innerHTML = '<option value="__all__">All tenants</option>' +
-    Array.from(known.entries()).map(([tid,label])=>`<option value="${tid}">${label}</option>`).join('');
-  if(liveTenant && known.has(liveTenant)){
-    sel.value = liveTenant;
-  } else if(prevValue && Array.from(sel.options).some(o=>o.value===prevValue)){
-    sel.value = prevValue;
+  sel.innerHTML = '<option value="">— Select a tenant —</option>' +
+    Array.from(known.entries()).map(([tid,label])=>`<option value="${tid}">${label}</option>`).join('') +
+    '<option value="__all__">All tenants</option>';
+  const matchedKey = Array.from(known.keys()).find(tid => tid.toLowerCase() === liveTenant);
+  if(matchedKey){
+    sel.value = matchedKey;
+  } else if(known.size === 1){
+    // Only one tenant known at all (e.g. this is the only tenant you've
+    // ever used) -- safe to preselect it even if it doesn't match the Live
+    // Test tenant exactly (e.g. that field is momentarily blank).
+    sel.value = Array.from(known.keys())[0];
   } else {
-    sel.value = '__all__';
+    sel.value = ''; // explicit "Select a tenant" placeholder -- never silently "All tenants"
   }
   renderAccountsTable();
 }
@@ -522,6 +531,14 @@ async function loadAllAccountsCache(){
 }
 function renderAccountsTable(){
   const filter = $('acctTenantFilter').value;
+  if(filter === ''){
+    // No tenant chosen yet (and none could be confidently inferred) --
+    // prompt for an explicit choice instead of silently showing everything.
+    $('acctTable').style.display = 'none';
+    $('acctEmptyState').style.display = 'block';
+    $('acctEmptyMsg').textContent = 'Select a tenant above to see its accounts.';
+    return;
+  }
   const accounts = filter==='__all__' ? allAccountsCache
     : allAccountsCache.filter(a => a.tenant_id === filter);
   if(!accounts.length){
@@ -592,8 +609,32 @@ async function parseUrl(){
   // something you typed in manually for a different purpose.
   if(d.environment_id && !$('environment_id').value) $('environment_id').value = d.environment_id;
 }
+// Neither `protocol` nor `url` was persisted anywhere -- every page reload
+// silently reset Protocol back to "D2E" and blanked the Endpoint/Agent URL,
+// even after deliberately setting up an A2A test with tenant/client/auth
+// mode all correctly remembered. That mismatch (A2A tenant+client, but a
+// D2E protocol with no URL) is exactly what made "Start Test" appear to do
+// nothing -- it was correctly refusing with a "Host/schema missing" alert
+// for the wrong, stale protocol. Persist/restore both the same way as
+// tenant/client/auth_mode so a full test setup survives reloads together.
+function saveUrlAndProtocol(){
+  localStorage.setItem('lastProtocol', $('protocol').value);
+  const u = $('url').value.trim();
+  if(u) localStorage.setItem('lastUrl', u);
+}
+function loadUrlAndProtocol(){
+  const p = localStorage.getItem('lastProtocol');
+  if(p && Array.from($('protocol').options).some(o=>o.value===p)){
+    $('protocol').value = p;
+  }
+  const u = localStorage.getItem('lastUrl');
+  if(u && !$('url').value) $('url').value = u;
+}
 $('url').addEventListener('input', parseUrl);
 $('url').addEventListener('blur', parseUrl);
+$('url').addEventListener('change', saveUrlAndProtocol);
+$('protocol').addEventListener('change', saveUrlAndProtocol);
+loadUrlAndProtocol();
 $('protocol').onchange = e => {
   const isA2A = e.target.value==='a2a';
   $('urlLabel').textContent = isA2A
@@ -604,6 +645,7 @@ $('protocol').onchange = e => {
     : 'https://{env}.environment.api.powerplatform.com/copilotstudio/dataverse-backed/authenticated/bots/{schema}/conversations?api-version=2022-03-01-preview';
   $('d2eDerivedRow').style.display = isA2A?'none':'grid';
   $('a2aDerivedRow').style.display = isA2A?'grid':'none';
+  saveUrlAndProtocol();
   parseUrl();
 };
 $('auth_mode').onchange = e => {
@@ -879,7 +921,12 @@ $('loadAuthProfileBtn').onclick = async () => {
   const r = await fetch('/api/auth_profiles/'+id); const p = await r.json();
   $('tenant_id').value = p.tenant_id || '';
   $('client_id').value = p.client_id || '';
-  if(p.auth_mode){ $('auth_mode').value = p.auth_mode; $('auth_mode').dispatchEvent(new Event('change')); }
+  // Deliberately does NOT touch auth_mode -- a profile is only an identity
+  // shortcut (tenant/client), per the step-1 help text above. Overwriting
+  // your current sign-in method (e.g. silently reverting Account pool back
+  // to whatever mode happened to be selected the first time this profile
+  // was saved) caused real confusion: it looked like the app had forgotten
+  // an already-working pool setup.
   saveAuthIds();
   if($('auth_mode').value === 'pool') refreshPoolAccounts();
 };
