@@ -4,7 +4,7 @@
   "schema": "new_SOPStandardAgent",
   "api_version": "2022-03-01-preview",
 
-  "tenant_id": "<MERCK_OR_TEST_TENANT_GUID>",
+  "tenant_id": "<YOUR_TENANT_GUID>",
   "client_id": "<ENTRA_APP_REGISTRATION_CLIENT_ID>",
 
   "auth_mode": "devicecode",

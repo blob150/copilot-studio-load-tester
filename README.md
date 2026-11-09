@@ -246,7 +246,7 @@ parameter the engine actually reads.
 | `schema` | The agent's Dataverse bot schema name (the `{schemaName}` segment of the D2E URL). |
 | `api_version` | D2E API version query param. Defaults to `2022-03-01-preview` in `D2EClient`; not currently a form field (edit the URL to change it). |
 | `a2a_url` | The A2A agent's base URL (or its `.well-known/agent-card.json` discovery URL — either works, auto-derived from the `url` field when `protocol=a2a`). Shape: `https://api.powerplatform.com/copilotstudio-a2a/tenants/{tenantId}/environments/{environmentId}/agents/{agentName}`. |
-| `environment_id` | The Dataverse environment GUID — used for Copilot Credit lookups (`pac licensing`), unrelated to the conversation call itself. |
+| `environment_id` | The Dataverse environment GUID — used for Copilot Credit lookups (`pac licensing`), unrelated to the conversation call itself. **Auto-filled** when you paste a URL: for D2E, the host subdomain IS the environment GUID with dashes removed (just split across two DNS labels), so it's reconstructed automatically; for A2A, it's parsed directly from the URL path. Only fills a blank field — never overwrites something you typed manually. |
 | `org_url` | The environment's Dataverse org URL (e.g. `https://orgxxxx.crm.dynamics.com`) — only used by the **Enrich tools** historical transcript lookup in Run History. |
 
 ### Authentication
@@ -256,8 +256,31 @@ parameter the engine actually reads.
 | `auth_mode` | `static` (paste a bearer token directly — fastest smoke test), `devicecode` (interactive MFA-compliant sign-in, single cached account), `pool` (Account Pool — see below), `a2a_confidential`/`mcp_confidential` (manual browser auth-code flow against a pre-existing CONFIDENTIAL/secret-required app registration — fallback only, see "Creating the app registration" above). |
 | `tenant_id` | Entra tenant GUID containing the agent and the app registration. |
 | `client_id` | The app registration's Application (client) ID. One registration works for all protocols — see "Creating the app registration". |
-| `client_secret` | Only used when `auth_mode` is `a2a_confidential`/`mcp_confidential`. Never persisted to saved presets (stripped server-side in `/api/presets`). |
+| `client_secret` | Only used when `auth_mode` is `a2a_confidential`/`mcp_confidential`. Never persisted to saved presets or Auth profiles (stripped server-side). |
 | `static_token` | Only used when `auth_mode=static`: a bearer token pasted directly (e.g. from `pac auth` or browser devtools). Expires quickly — mainly for one-off smoke checks. |
+
+**How the four auth controls fit together** (Live Test tab, numbered steps 1–4):
+1. **Auth profile** — a named shortcut for *which* tenant/app registration to
+   use. Loading one just fills in Tenant ID/Client ID/Auth mode below; it
+   does **not** sign you in by itself.
+2. **Tenant ID / Client ID** — the actual identity values the run uses,
+   whether typed manually or filled by a profile.
+3. **Auth mode** — *how* you'll sign in (device code / account pool /
+   static token / confidential client).
+4. **Sign in** — the actual interactive step, specific to the mode chosen:
+   `devicecode`/`a2a_confidential` show an **"Authenticate now"** button
+   here (click it, complete the browser prompt); `pool` shows the Account
+   Pool wizard instead; `static` skips this step entirely (nothing to sign
+   into — you already have a token).
+   A multi-session run under `devicecode`/`a2a_confidential` will be
+   **rejected immediately** if step 4 hasn't been completed yet (rather than
+   hanging) — see "Known limitations" below for why.
+
+**Auth profiles**: save/load/delete named `(tenant_id, client_id, auth_mode)`
+combos via **Save profile** / the dropdown + **Load** / **Delete** in step 1 —
+independent of load-test presets, so switching which tenant you're pointed
+at doesn't mean retyping GUIDs or hunting through unrelated saved configs.
+Never stores a secret.
 
 **Account Pool**: click **"+ Add account"** repeatedly (Live Test tab or Accounts
 tab) to sign in N distinct accounts via N separate device-code flows — each one gets
@@ -269,6 +292,27 @@ countdowns, and lets you remove accounts. The pool resolves its scope from `prot
 (same app registration, same cached accounts — switching `protocol` between runs
 re-uses the signed-in accounts and silently acquires a token for the new scope,
 no re-sign-in needed, as long as that scope was admin-consented up front).
+The Accounts tab shows accounts across **every tenant you have a saved Auth
+profile for** in one combined table (with a Tenant/Profile column) — not
+just whichever tenant happens to be in the form right now.
+
+### Saved configurations (presets)
+
+The dropdown at the top of the Live Test tab saves/loads/deletes full
+load-test configs (everything on the form). Two distinct actions avoid
+accidentally creating duplicates:
+- **Save as new** — always creates a new entry; requires a name.
+- **Update selected** — overwrites whichever preset is currently selected
+  in the dropdown with the form's current settings, keeping its existing
+  name and id (no retyping the name, no duplicate created).
+
+### Prompt sets
+
+Click **🗂️ Manage sets** next to the Prompts box to open a small popup for
+building a library of reusable, named question lists (e.g. "SOP questions",
+"weather smoke test") independent of load-test presets. Save/update/delete
+sets, or click **Apply to current test** to copy a set straight into the
+main Prompts box and close the popup.
 
 ### Load mode & shape
 
@@ -356,6 +400,16 @@ runs populate it going forward.
   observed during development and may need adjustment for other agent patterns.
 - The Flask dev server (`app.run(...)`) is explicitly **not production-grade** —
   this tool is single-user, single-machine, local-only by design.
+- **`devicecode`/`a2a_confidential` auth modes require a completed sign-in
+  (step 4) before starting any run with more than one session.** All virtual
+  user threads share one provider instance, and it holds its internal lock
+  for the entire interactive sign-in flow — so without a cached token
+  already in place, the first thread would block waiting for you to sign
+  in (with every other thread blocking behind it) and the run would look
+  permanently "stuck" with no visible prompt. `api_start` now checks for a
+  cached token upfront and rejects immediately with a clear message instead.
+  Use **Account Pool** mode for multi-account/multi-session runs, or
+  complete step 4 first for `devicecode`/confidential modes.
 
 ## A2A streaming protocol (preview)
 

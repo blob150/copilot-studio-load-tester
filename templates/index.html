@@ -61,6 +61,22 @@
   .tabs{display:flex;gap:8px;margin-bottom:14px}
   .tab{padding:7px 14px;border:1px solid var(--line);border-radius:7px;cursor:pointer;color:var(--muted)}
   .tab.active{background:var(--panel);color:var(--ink);border-color:var(--accent)}
+  .icon-btn{width:auto;display:inline-flex;align-items:center;gap:6px;margin:0;padding:4px 10px;
+    font-size:12px;font-weight:600;background:var(--panel2);color:var(--ink);
+    border:1px solid var(--line);border-radius:6px;cursor:pointer}
+  .icon-btn:hover{border-color:var(--accent)}
+  .label-row{display:flex;align-items:center;justify-content:space-between;margin:10px 0 4px}
+  .label-row label{margin:0}
+  .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);
+    z-index:1000;align-items:center;justify-content:center}
+  .modal-backdrop.open{display:flex}
+  .modal-box{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:20px;width:560px;max-width:92vw;max-height:84vh;overflow:auto;
+    box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .modal-box h3{margin:0 0 4px;font-size:15px}
+  .modal-close{width:auto;margin:0;padding:4px 10px;background:var(--panel2);
+    color:var(--ink);border:1px solid var(--line);font-size:16px;line-height:1;border-radius:6px}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 </style>
 </head>
 <body>
@@ -89,8 +105,12 @@
       </div>
     </div>
     <div class="row" style="margin-top:6px">
+      <button class="btn" style="margin:0;background:var(--panel2);color:var(--ink);border:1px solid var(--line)" id="updatePresetBtn">Update selected</button>
+      <span class="muted" style="font-size:11px;align-self:center">overwrites the config currently selected above with what's on screen now</span>
+    </div>
+    <div class="row" style="margin-top:6px">
       <input id="presetName" placeholder="Name this configuration…">
-      <button class="btn" style="margin:0" id="savePresetBtn">Save config</button>
+      <button class="btn" style="margin:0" id="savePresetBtn">Save as new</button>
     </div>
 
     <label style="margin-top:16px">Protocol</label>
@@ -114,7 +134,12 @@
     <label>Dataverse org URL (for historical tool enrichment)</label>
     <input id="org_url" placeholder="https://orgxxxx.crm.dynamics.com">
 
-    <label>Auth profile (tenant / app registration)</label>
+    <label style="margin-top:16px">1. Tenant / app registration</label>
+    <p class="muted" style="font-size:11px;margin:0 0 6px">
+      Pick a saved profile to fill in Tenant ID + Client ID below (optional -- you can
+      also just type them in directly). A profile only remembers WHICH tenant/app
+      registration to use; it does not sign you in by itself -- do that in step 3 below.
+    </p>
     <div class="row">
       <select id="authProfileSelect"><option value="">-- Select a saved tenant/app registration --</option></select>
       <div style="display:flex;gap:6px">
@@ -126,41 +151,42 @@
       <input id="authProfileName" placeholder="Name this tenant (e.g. PFECRM, DIAx)...">
       <button class="btn" style="margin:0" id="saveAuthProfileBtn">Save profile</button>
     </div>
-    <p class="muted" style="font-size:11px;margin:4px 0 0">
-      A profile remembers Tenant ID + Client ID + Auth mode only (never a secret) --
-      independent of your load-test presets below, so you can switch which tenant
-      you are pointed at without retyping GUIDs or losing an already-signed-in
-      account pool. Each tenant keeps its own account pool in this running session.
-    </p>
 
-    <label style="margin-top:12px">Auth mode</label>
-    <select id="auth_mode">
-      <option value="devicecode">Device code (single account, cached)</option>
-      <option value="pool">Account pool (multi-account wizard)</option>
-      <option value="static">Static bearer token</option>
-      <option value="a2a_confidential">A2A: confidential client (secret required)</option>
-    </select>
+    <label style="margin-top:16px">2. Tenant ID / Client ID</label>
     <div class="row" id="aadRow">
       <div><label>Tenant ID</label><input id="tenant_id"></div>
       <div><label>Client ID</label><input id="client_id"></div>
     </div>
+
+    <label style="margin-top:16px">3. How will you sign in?</label>
+    <select id="auth_mode">
+      <option value="devicecode">Device code -- one account, sign in below (needs step 4)</option>
+      <option value="pool">Account pool -- sign in multiple accounts via the wizard below (needs step 4)</option>
+      <option value="static">Static bearer token -- paste a token, no sign-in needed</option>
+      <option value="a2a_confidential">A2A: confidential client -- secret required, sign in below (needs step 4)</option>
+    </select>
     <div id="secretRow" style="display:none">
-      <label>Client secret (confidential app registrations only -- never saved to presets)</label>
+      <label>Client secret (confidential app registrations only -- never saved to presets or profiles)</label>
       <input id="client_secret" type="password" autocomplete="off">
     </div>
-    <div id="tokRow" style="display:none"><label>Bearer token</label><textarea id="static_token"></textarea></div>
-    <button class="btn" id="authBtn" style="background:var(--panel2);color:var(--ink);border:1px solid var(--line)">Authenticate now</button>
-    <div id="authState" class="muted" style="font-size:12px;margin-top:6px"></div>
+    <div id="tokRow" style="display:none"><label>Static bearer token</label><textarea id="static_token"></textarea></div>
 
-    <div id="poolWizard" style="display:none;margin-top:10px;border:1px dashed var(--line);border-radius:8px;padding:10px">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
-        Account pool: click <b>Add account</b> once per test identity. Each click opens a
-        fresh device-code sign-in; use a private/incognito window if your browser is
-        already signed in, so you add a genuinely different account.
+    <div id="authStep4" style="margin-top:16px">
+      <label style="margin:0">4. Sign in</label>
+      <p class="muted" style="font-size:11px;margin:2px 0 6px" id="authStepHelp"></p>
+      <button class="btn" id="authBtn" style="background:var(--panel2);color:var(--ink);border:1px solid var(--line);margin-top:4px">Authenticate now</button>
+      <div id="authState" class="muted" style="font-size:12px;margin-top:6px"></div>
+
+      <div id="poolWizard" style="display:none;margin-top:10px;border:1px dashed var(--line);border-radius:8px;padding:10px">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+          Account pool: click <b>Add account</b> once per test identity. Each click opens a
+          fresh device-code sign-in; use a private/incognito window if your browser is
+          already signed in, so you add a genuinely different account.
+        </div>
+        <button class="btn" style="margin:0 0 8px" id="poolAddBtn">+ Add account</button>
+        <div id="poolAddState" class="muted" style="font-size:12px;margin-bottom:8px"></div>
+        <table style="font-size:12px"><tbody id="poolAccounts"></tbody></table>
       </div>
-      <button class="btn" style="margin:0 0 8px" id="poolAddBtn">+ Add account</button>
-      <div id="poolAddState" class="muted" style="font-size:12px;margin-bottom:8px"></div>
-      <table style="font-size:12px"><tbody id="poolAccounts"></tbody></table>
     </div>
 
     <label>Load mode</label>
@@ -203,12 +229,15 @@
       <div><label>Think min (s)</label><input id="think_min" type="number" value="15"></div>
       <div><label>Think max (s)</label><input id="think_max" type="number" value="45"></div>
     </div>
-    <label>Prompts (one per line)</label>
+    <div class="label-row">
+      <label style="margin:0">Prompts (one per line)</label>
+      <button type="button" class="icon-btn" id="openPromptSetsBtn" title="Manage reusable question sets">🗂️ Manage sets</button>
+    </div>
     <textarea id="prompts">What is the standard operating procedure for onboarding?
 Summarize the safety guidelines for lab access.
 What are the steps to file an incident report?</textarea>
     <label><input type="checkbox" id="stop_on_throttle" style="width:auto"> Stop on first throttle</label>
-    <label>Run label</label><input id="label" placeholder="e.g. Merck spike sim 2k">
+    <label>Run label</label><input id="label" placeholder="e.g. Event spike sim 2k">
 
     <button class="btn" id="startBtn">Start Test</button>
     <button class="btn stop" id="stopBtn" style="display:none">Stop Test</button>
@@ -333,6 +362,41 @@ What are the steps to file an incident report?</textarea>
   </div>
 </div>
 
+<!-- PROMPT SETS MODAL -->
+<div class="modal-backdrop" id="promptSetsModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>Manage question sets</h3>
+      <button type="button" class="modal-close" id="closePromptSetsBtn">✕</button>
+    </div>
+    <p class="muted" style="font-size:12px;margin:0 0 10px">
+      Save reusable lists of prompts (e.g. "SOP questions", "weather smoke test") so you
+      don't have to retype them every time — independent of your load-test presets.
+    </p>
+    <label>Saved question sets</label>
+    <div class="row">
+      <select id="promptSetSelect"><option value="">— Select a saved set —</option></select>
+      <div style="display:flex;gap:6px">
+        <button class="btn" style="margin:0" id="loadPromptSetBtn">Load</button>
+        <button class="btn" style="margin:0;background:var(--err);color:#fff" id="deletePromptSetBtn">Delete</button>
+      </div>
+    </div>
+
+    <label style="margin-top:14px">Questions (one per line)</label>
+    <textarea id="promptSetEditor" style="min-height:160px"></textarea>
+
+    <div class="row" style="margin-top:6px">
+      <button class="btn" style="margin:0;background:var(--panel2);color:var(--ink);border:1px solid var(--line)" id="updatePromptSetBtn">Update selected</button>
+      <button class="btn" style="margin:0" id="applyPromptSetBtn">Apply to current test</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <input id="promptSetName" placeholder="Name this question set…">
+      <button class="btn" style="margin:0" id="savePromptSetBtn">Save as new</button>
+    </div>
+    <div id="promptSetState" class="muted" style="font-size:12px;margin-top:8px"></div>
+  </div>
+</div>
+
 <script>
 const $ = id => document.getElementById(id);
 let polling = null;
@@ -427,6 +491,11 @@ async function parseUrl(){
   $('environment_id_a2a').value = d.environment_id || '';
   $('agent_id').value = d.agent_id || '';
   if(d.a2a_url) $('url').dataset.a2aUrl = d.a2a_url;
+  // Auto-fill the credit-lookup Environment ID field too (D2E's host
+  // subdomain IS the environment GUID, and A2A URLs carry it explicitly) --
+  // but only when it's still blank, so it never silently overwrites
+  // something you typed in manually for a different purpose.
+  if(d.environment_id && !$('environment_id').value) $('environment_id').value = d.environment_id;
 }
 $('url').addEventListener('input', parseUrl);
 $('url').addEventListener('blur', parseUrl);
@@ -446,13 +515,25 @@ $('auth_mode').onchange = e => {
   const mode = e.target.value;
   const s = mode==='static';
   const confidential = mode==='a2a_confidential';
+  const pool = mode==='pool';
   $('tokRow').style.display = s?'block':'none';
   $('secretRow').style.display = confidential?'block':'none';
   $('aadRow').style.display = s?'none':'grid';
-  $('poolWizard').style.display = mode==='pool'?'block':'none';
-  $('authBtn').style.display = (mode==='pool'||confidential)?'none':'block';
-  if(mode==='pool') refreshPoolAccounts();
+  $('poolWizard').style.display = pool?'block':'none';
+  // "Authenticate now" is the sign-in action for devicecode AND the
+  // confidential-client flow (both need an interactive step) -- only pool
+  // (its own wizard does this) and static (no sign-in at all) skip it.
+  $('authBtn').style.display = (pool||s)?'none':'block';
+  $('authStep4').style.display = s?'none':'block';
+  const help = {
+    devicecode: 'Click below once and complete the sign-in prompt. One cached account is reused for every virtual user -- fine for a quick test, but every session shares the same identity.',
+    pool: 'Use "+ Add account" below to sign in one or more accounts. Each virtual user gets a stable, distinct account from this pool for its whole session.',
+    a2a_confidential: 'Enter the client secret above, then click below and complete the sign-in prompt in your browser.',
+  }[mode] || '';
+  $('authStepHelp').textContent = help;
+  if(pool) refreshPoolAccounts();
 };
+$('auth_mode').dispatchEvent(new Event('change'));
 function fallbackCopy(text, onSuccess){
   const ta = document.createElement('textarea');
   ta.value = text;
@@ -594,15 +675,31 @@ let presetsCache = [];
 async function loadPresets(){
   const r = await fetch('/api/presets'); presetsCache = await r.json();
   const sel = $('presetSelect');
+  const prevValue = sel.value;
   sel.innerHTML = '<option value="">— Select a saved config —</option>' +
     presetsCache.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  if(prevValue) sel.value = prevValue;
 }
 $('savePresetBtn').onclick = async () => {
   const name = $('presetName').value.trim();
   if(!name){ alert('Enter a name for this configuration.'); return; }
+  // Deliberately no id here -- always creates a NEW preset, even if a name
+  // matching an existing one is typed (use "Update selected" to overwrite
+  // an existing one instead; this avoids silently clobbering the wrong
+  // entry on a near-duplicate name).
   await fetch('/api/presets',{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({name, config:cfg()})});
   $('presetName').value='';
+  await loadPresets();
+};
+$('updatePresetBtn').onclick = async () => {
+  const id = $('presetSelect').value;
+  if(!id){ alert('Select a saved configuration to update first (or use "Save as new").'); return; }
+  const existing = presetsCache.find(p=>p.id===id);
+  if(!existing){ alert('Could not find that saved configuration anymore -- refresh and try again.'); return; }
+  if(!confirm(`Overwrite "${existing.name}" with the current settings?`)) return;
+  await fetch('/api/presets',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id, name:existing.name, config:cfg()})});
   await loadPresets();
 };
 $('loadPresetBtn').onclick = async () => {
@@ -660,6 +757,78 @@ $('deleteAuthProfileBtn').onclick = async () => {
   await loadAuthProfiles();
 };
 loadAuthProfiles();
+
+// --- Prompt sets: named, reusable question lists, managed in a popup
+// modal so the main form stays uncluttered. ---
+let promptSetsCache = [];
+async function loadPromptSets(){
+  const r = await fetch('/api/prompt_sets'); promptSetsCache = await r.json();
+  const sel = $('promptSetSelect');
+  const prevValue = sel.value;
+  sel.innerHTML = '<option value="">— Select a saved set —</option>' +
+    promptSetsCache.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  if(prevValue) sel.value = prevValue;
+}
+function openPromptSetsModal(){
+  $('promptSetsModal').classList.add('open');
+  // Seed the editor with whatever's currently in the main Prompts box, so
+  // "Save as new"/"Update selected" has something sensible by default.
+  $('promptSetEditor').value = $('prompts').value;
+  $('promptSetState').textContent = '';
+  loadPromptSets();
+}
+function closePromptSetsModal(){
+  $('promptSetsModal').classList.remove('open');
+}
+$('openPromptSetsBtn').onclick = openPromptSetsModal;
+$('closePromptSetsBtn').onclick = closePromptSetsModal;
+$('promptSetsModal').addEventListener('click', e => {
+  if(e.target.id === 'promptSetsModal') closePromptSetsModal(); // click outside the box
+});
+$('loadPromptSetBtn').onclick = async () => {
+  const id = $('promptSetSelect').value;
+  if(!id){ alert('Select a saved question set first.'); return; }
+  const r = await fetch('/api/prompt_sets/'+id); const p = await r.json();
+  $('promptSetEditor').value = (p.prompts||[]).join('\n');
+  $('promptSetState').textContent = `Loaded "${p.name}" into the editor below.`;
+};
+$('savePromptSetBtn').onclick = async () => {
+  const name = $('promptSetName').value.trim();
+  if(!name){ alert('Enter a name for this question set.'); return; }
+  const prompts = $('promptSetEditor').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!prompts.length){ alert('Add at least one question first.'); return; }
+  await fetch('/api/prompt_sets',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name, prompts})});
+  $('promptSetName').value='';
+  $('promptSetState').textContent = `Saved as new set "${name}".`;
+  await loadPromptSets();
+};
+$('updatePromptSetBtn').onclick = async () => {
+  const id = $('promptSetSelect').value;
+  if(!id){ alert('Select a saved question set to update first (or use "Save as new").'); return; }
+  const existing = promptSetsCache.find(p=>p.id===id);
+  if(!existing) return;
+  const prompts = $('promptSetEditor').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!prompts.length){ alert('Add at least one question first.'); return; }
+  if(!confirm(`Overwrite "${existing.name}" with the questions in the editor?`)) return;
+  await fetch('/api/prompt_sets',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id, name:existing.name, prompts})});
+  $('promptSetState').textContent = `Updated "${existing.name}".`;
+  await loadPromptSets();
+};
+$('deletePromptSetBtn').onclick = async () => {
+  const id = $('promptSetSelect').value;
+  if(!id) return;
+  if(!confirm('Delete this saved question set?')) return;
+  await fetch('/api/prompt_sets/'+id,{method:'DELETE'});
+  await loadPromptSets();
+};
+$('applyPromptSetBtn').onclick = () => {
+  const prompts = $('promptSetEditor').value.split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!prompts.length){ alert('Add at least one question first.'); return; }
+  $('prompts').value = prompts.join('\n');
+  closePromptSetsModal();
+};
 
 $('authBtn').onclick = async () => {
   saveAuthIds();

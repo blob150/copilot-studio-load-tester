@@ -57,6 +57,26 @@ def parse_endpoint(url: str) -> dict:
             "api_version": m.group("ver")}
 
 
+_D2E_HOST_ENV_RE = re.compile(
+    r"^(?P<p1>[0-9a-f]{30})\.(?P<p2>[0-9a-f]{2})\.environment\.", re.IGNORECASE)
+
+
+def environment_id_from_d2e_host(host: str) -> str | None:
+    """The D2E host's subdomain IS the environment GUID with dashes removed,
+    just split into two labels around the region segment, e.g.
+    'ea32dda382d5e9c4a499d7d7f2d31b.f3.environment.api.powerplatform.com'
+    -> 'ea32dda3-82d5-e9c4-a499-d7d7f2d31bf3'. Lets the UI auto-fill
+    Environment ID the same way A2A URLs already auto-fill tenant/environment,
+    instead of requiring it to be typed in separately."""
+    m = _D2E_HOST_ENV_RE.match(host or "")
+    if not m:
+        return None
+    hex32 = (m.group("p1") + m.group("p2")).lower()
+    if len(hex32) != 32:
+        return None
+    return f"{hex32[0:8]}-{hex32[8:12]}-{hex32[12:16]}-{hex32[16:20]}-{hex32[20:32]}"
+
+
 def parse_a2a_endpoint(url: str) -> dict:
     """Accepts either the agent base URL or the .well-known/agent-card.json
     discovery URL -- both carry the same tenant/environment/agent path
@@ -249,7 +269,12 @@ def api_parse_url():
     a2a = parse_a2a_endpoint(url)
     if a2a:
         return jsonify(a2a)
-    return jsonify(parse_endpoint(url))
+    d2e = parse_endpoint(url)
+    if d2e.get("host"):
+        env_id = environment_id_from_d2e_host(d2e["host"])
+        if env_id:
+            d2e["environment_id"] = env_id
+    return jsonify(d2e)
 
 
 @app.route("/api/start", methods=["POST"])
@@ -279,6 +304,10 @@ def api_start():
                     cfg[k] = v
         if not cfg.get("host") or not cfg.get("schema"):
             return jsonify({"error": "Host/schema missing. Paste a valid endpoint URL."}), 400
+        if cfg.get("host") and not cfg.get("environment_id"):
+            env_id = environment_id_from_d2e_host(cfg["host"])
+            if env_id:
+                cfg["environment_id"] = env_id
     with _lock:
         prev = _state.get("stats")
         thread_busy = _state["thread"] and _state["thread"].is_alive()
@@ -589,6 +618,38 @@ def api_auth_profiles_get(profile_id):
 @app.route("/api/auth_profiles/<profile_id>", methods=["DELETE"])
 def api_auth_profiles_delete(profile_id):
     run_store.delete_auth_profile(profile_id)
+    return jsonify({"ok": True})
+
+
+# ---- prompt sets (named, reusable question lists) --------------------------
+
+@app.route("/api/prompt_sets", methods=["GET"])
+def api_prompt_sets_list():
+    return jsonify(run_store.list_prompt_sets())
+
+
+@app.route("/api/prompt_sets", methods=["POST"])
+def api_prompt_sets_save():
+    body = request.json or {}
+    name = (body.get("name") or "").strip()
+    prompts = [p for p in (body.get("prompts") or []) if isinstance(p, str) and p.strip()]
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+    if not prompts:
+        return jsonify({"error": "at least one prompt is required"}), 400
+    pset = run_store.save_prompt_set(name, prompts, body.get("id"))
+    return jsonify(pset)
+
+
+@app.route("/api/prompt_sets/<set_id>", methods=["GET"])
+def api_prompt_sets_get(set_id):
+    p = run_store.get_prompt_set(set_id)
+    return (jsonify(p), 200) if p else (jsonify({"error": "not found"}), 404)
+
+
+@app.route("/api/prompt_sets/<set_id>", methods=["DELETE"])
+def api_prompt_sets_delete(set_id):
+    run_store.delete_prompt_set(set_id)
     return jsonify({"ok": True})
 
 

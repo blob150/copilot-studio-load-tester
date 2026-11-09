@@ -72,6 +72,13 @@ CREATE TABLE IF NOT EXISTS auth_profiles (
     auth_mode TEXT,
     note TEXT
 );
+
+CREATE TABLE IF NOT EXISTS prompt_sets (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    created_iso TEXT,
+    prompts_json TEXT
+);
 """
 
 
@@ -422,6 +429,48 @@ def delete_auth_profile(profile_id: str) -> None:
     c = _conn()
     with _lock:
         c.execute("DELETE FROM auth_profiles WHERE id=?", (profile_id,))
+        c.commit()
+
+
+# ---- prompt sets --------------------------------------------------------
+# Named, reusable lists of test prompts, independent of load-test presets --
+# lets you build up a library of question sets (e.g. "SOP questions",
+# "weather smoke test") and apply any of them to the current test without
+# re-typing, separate from the rest of a preset's load-shape settings.
+
+def save_prompt_set(name: str, prompts: list[str], set_id: str | None = None) -> dict:
+    c = _conn()
+    pid = set_id or uuid.uuid4().hex[:12]
+    created_iso = time.strftime("%Y-%m-%d %H:%M:%S")
+    with _lock:
+        c.execute(
+            "INSERT INTO prompt_sets (id, name, created_iso, prompts_json) VALUES (?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET name=excluded.name, prompts_json=excluded.prompts_json",
+            (pid, name, created_iso, json.dumps(prompts)))
+        c.commit()
+    return {"id": pid, "name": name, "created_iso": created_iso, "prompts": prompts}
+
+
+def list_prompt_sets() -> list[dict]:
+    c = _conn()
+    rows = c.execute("SELECT id, name, created_iso FROM prompt_sets ORDER BY name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_prompt_set(set_id: str) -> dict | None:
+    c = _conn()
+    row = c.execute("SELECT * FROM prompt_sets WHERE id=?", (set_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    d["prompts"] = json.loads(d.pop("prompts_json"))
+    return d
+
+
+def delete_prompt_set(set_id: str) -> None:
+    c = _conn()
+    with _lock:
+        c.execute("DELETE FROM prompt_sets WHERE id=?", (set_id,))
         c.commit()
 
 
