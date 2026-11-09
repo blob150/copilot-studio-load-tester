@@ -341,12 +341,18 @@ What are the steps to file an incident report?</textarea>
     <p class="muted" style="font-size:12px">Accounts added via the Account pool wizard
       (Live Test → Auth mode → Account pool), or right here. Token status refreshes each
       time this tab loads — MSAL silently renews the access token using its refresh
-      token as needed, so “valid” usually means you're good to go without re-signing-in.
-      This table shows accounts across <b>every tenant you have a saved Auth profile
-      for</b> (Live Test → Auth profile), so a second tenant's accounts never silently
-      disappear just because you're looking at a different one right now.</p>
+      token as needed, so “valid” usually means you're good to go without re-signing-in.</p>
 
-    <label>Add an account to…</label>
+    <label>Showing accounts for</label>
+    <div class="row">
+      <select id="acctTenantFilter"><option value="__all__">All tenants</option></select>
+      <div class="muted" style="font-size:11px;align-self:center">
+        Defaults to whatever tenant is set on the Live Test tab. Switch here to see a
+        different tenant's accounts, or pick "All tenants" to see everything at once.
+      </div>
+    </div>
+
+    <label style="margin-top:14px">Add an account to…</label>
     <div class="row" style="margin-bottom:10px">
       <div><label>Tenant ID</label><input id="acctTenant"></div>
       <div><label>Client ID</label><input id="acctClient"></div>
@@ -356,8 +362,12 @@ What are the steps to file an incident report?</textarea>
       <button class="btn" style="margin:0;background:var(--panel2);color:var(--ink);border:1px solid var(--line)" id="acctRefreshBtn">Refresh status</button>
     </div>
     <div id="acctAddState" class="muted" style="font-size:12px;margin-bottom:10px"></div>
-    <table><thead><tr>
-      <th>Tenant / Profile</th><th>Username</th><th>Status</th><th>Token expires</th><th>Time remaining</th><th></th>
+    <div id="acctEmptyState" style="display:none;padding:18px;text-align:center;border:1px dashed var(--line);border-radius:8px;margin-bottom:10px">
+      <div class="muted" style="margin-bottom:10px" id="acctEmptyMsg">No accounts here yet.</div>
+      <button class="btn icon-btn" style="margin:0" id="acctEmptyAddBtn">+ Add an account</button>
+    </div>
+    <table id="acctTable"><thead><tr>
+      <th>Use</th><th>Tenant / Profile</th><th>Username</th><th>Status</th><th>Token expires</th><th>Time remaining</th><th></th>
     </tr></thead><tbody id="acctBody"></tbody></table>
   </div>
 </div>
@@ -438,7 +448,10 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
     // just because those fields happened to be blank at this exact moment.
     $('acctTenant').value = $('tenant_id').value || localStorage.getItem('lastTenantId') || '';
     $('acctClient').value = $('client_id').value || localStorage.getItem('lastClientId') || '';
-    loadAccountsTab();
+    // Default the tenant FILTER to whatever's on the Live Test tab too, so
+    // switching to Accounts shows exactly the tenant you're about to test
+    // against, not a mixed list you have to hunt through.
+    openAccountsTab();
   }
 });
 
@@ -451,7 +464,31 @@ function fmtRemaining(sec){
 function shortTenant(tenantId){
   return tenantId ? tenantId.slice(0,8)+'…' : '';
 }
-async function loadAccountsTab(){
+let allAccountsCache = [];
+async function openAccountsTab(){
+  await loadAllAccountsCache();
+  // Build the filter dropdown from whatever tenants actually have accounts
+  // or a saved Auth profile, defaulting the selection to the Live Test
+  // tab's current tenant (falling back to "All tenants" if that tenant
+  // isn't known yet, e.g. nothing signed in for it).
+  const liveTenant = $('tenant_id').value.trim();
+  const known = new Map(); // tenant_id -> label
+  allAccountsCache.forEach(a => known.set(a.tenant_id, a.profile_name || shortTenant(a.tenant_id)));
+  (authProfilesCache||[]).forEach(p => { if(!known.has(p.tenant_id)) known.set(p.tenant_id, p.name); });
+  const sel = $('acctTenantFilter');
+  const prevValue = sel.value;
+  sel.innerHTML = '<option value="__all__">All tenants</option>' +
+    Array.from(known.entries()).map(([tid,label])=>`<option value="${tid}">${label}</option>`).join('');
+  if(liveTenant && known.has(liveTenant)){
+    sel.value = liveTenant;
+  } else if(prevValue && Array.from(sel.options).some(o=>o.value===prevValue)){
+    sel.value = prevValue;
+  } else {
+    sel.value = '__all__';
+  }
+  renderAccountsTable();
+}
+async function loadAllAccountsCache(){
   const protocol = $('protocol') ? $('protocol').value : 'd2e';
   const tenant = $('acctTenant').value.trim(), client = $('acctClient').value.trim();
   let url = '/api/pool/accounts_all?protocol='+encodeURIComponent(protocol);
@@ -462,11 +499,29 @@ async function loadAccountsTab(){
     url += '&tenant_id='+encodeURIComponent(tenant)+'&client_id='+encodeURIComponent(client);
   }
   const r = await fetch(url);
-  const accounts = await r.json();
+  allAccountsCache = await r.json();
+}
+function renderAccountsTable(){
+  const filter = $('acctTenantFilter').value;
+  const accounts = filter==='__all__' ? allAccountsCache
+    : allAccountsCache.filter(a => a.tenant_id === filter);
+  if(!accounts.length){
+    $('acctTable').style.display = 'none';
+    $('acctEmptyState').style.display = 'block';
+    $('acctEmptyMsg').textContent = filter==='__all__'
+      ? 'No accounts signed in yet for any tenant.'
+      : 'No accounts signed in yet for this tenant.';
+    return;
+  }
+  $('acctTable').style.display = 'table';
+  $('acctEmptyState').style.display = 'none';
   $('acctBody').innerHTML = accounts.map(a=>{
     const cls = a.status==='valid' ? 's2' : (a.status==='expired' ? 's4' : 's5');
     const tenantLabel = a.profile_name || shortTenant(a.tenant_id);
+    const checked = a.enabled!==false ? 'checked' : '';
     return `<tr>
+      <td><input type="checkbox" ${checked} title="Use this account in test runs"
+            onchange="toggleAccount('${a.home_account_id}','${a.tenant_id}','${a.client_id}',this.checked)"></td>
       <td class="muted" title="${a.tenant_id||''} / ${a.client_id||''}">${tenantLabel}</td>
       <td>${a.username||''}</td>
       <td><span class="pill ${cls}">${a.status}</span></td>
@@ -474,7 +529,19 @@ async function loadAccountsTab(){
       <td>${fmtRemaining(a.seconds_remaining)}</td>
       <td><button onclick="removeAccount('${a.home_account_id}','${a.tenant_id}','${a.client_id}')">Remove</button></td>
     </tr>`;
-  }).join('') || '<tr><td colspan="6" class="muted">No accounts yet across any saved Auth profile. Save a profile (Live Test → Auth profile) or enter a Tenant ID / Client ID above and add an account.</td></tr>';
+  }).join('');
+}
+async function loadAccountsTab(){
+  await loadAllAccountsCache();
+  renderAccountsTable();
+}
+async function toggleAccount(haid, tenant, client, enabled){
+  // Update the cache optimistically so the checkbox doesn't visually revert
+  // while the request is in flight.
+  const a = allAccountsCache.find(x=>x.home_account_id===haid && x.tenant_id===tenant);
+  if(a) a.enabled = enabled;
+  await fetch('/api/pool/toggle',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({home_account_id:haid, tenant_id:tenant, client_id:client, enabled})});
 }
 async function removeAccount(haid, tenant, client){
   if(!confirm('Remove this account from the pool?')) return;
@@ -483,7 +550,10 @@ async function removeAccount(haid, tenant, client){
     body:JSON.stringify({home_account_id:haid, tenant_id:tenant, client_id:client, protocol})});
   loadAccountsTab();
 }
+$('acctTenantFilter').addEventListener('change', renderAccountsTable);
 $('acctRefreshBtn').onclick = loadAccountsTab;
+$('acctEmptyAddBtn').onclick = () => startAddAccount(
+  $('acctTenant').value, $('acctClient').value, 'acctAddState', loadAccountsTab);
 $('acctTenant').addEventListener('change', loadAccountsTab);
 $('acctClient').addEventListener('change', loadAccountsTab);
 

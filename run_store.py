@@ -79,6 +79,14 @@ CREATE TABLE IF NOT EXISTS prompt_sets (
     created_iso TEXT,
     prompts_json TEXT
 );
+
+CREATE TABLE IF NOT EXISTS account_enabled (
+    tenant_id TEXT,
+    client_id TEXT,
+    home_account_id TEXT,
+    enabled INTEGER,
+    PRIMARY KEY (tenant_id, client_id, home_account_id)
+);
 """
 
 
@@ -471,6 +479,31 @@ def delete_prompt_set(set_id: str) -> None:
     c = _conn()
     with _lock:
         c.execute("DELETE FROM prompt_sets WHERE id=?", (set_id,))
+        c.commit()
+
+
+# ---- per-account enabled/disabled state ------------------------------------
+# Lets a user exclude specific signed-in accounts from actually being used in
+# a run's Account Pool, without removing them entirely (re-enable any time).
+# Absence of a row means "enabled" (the historical default -- every cached
+# account was used automatically before this existed).
+
+def is_account_enabled(tenant_id: str, client_id: str, home_account_id: str) -> bool:
+    c = _conn()
+    row = c.execute(
+        "SELECT enabled FROM account_enabled WHERE tenant_id=? AND client_id=? AND home_account_id=?",
+        (tenant_id, client_id, home_account_id)).fetchone()
+    return True if row is None else bool(row["enabled"])
+
+
+def set_account_enabled(tenant_id: str, client_id: str, home_account_id: str, enabled: bool) -> None:
+    c = _conn()
+    with _lock:
+        c.execute(
+            "INSERT INTO account_enabled (tenant_id, client_id, home_account_id, enabled) "
+            "VALUES (?,?,?,?) ON CONFLICT(tenant_id, client_id, home_account_id) "
+            "DO UPDATE SET enabled=excluded.enabled",
+            (tenant_id, client_id, home_account_id, 1 if enabled else 0))
         c.commit()
 
 

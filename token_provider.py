@@ -306,10 +306,17 @@ class AccountPoolManager(TokenProvider):
     (or sign out of the browser first) when prompted.
     """
 
-    def __init__(self, tenant_id: str, client_id: str, scope: list[str] | None = None):
+    def __init__(self, tenant_id: str, client_id: str, scope: list[str] | None = None,
+                 is_enabled: Callable[[str], bool] | None = None):
         self.tenant_id = tenant_id
         self.client_id = client_id
         self.scope = scope or SCOPE
+        # Optional external policy for which cached accounts are actually
+        # eligible to be used in a run (vs. just cached/visible) -- lets the
+        # UI let a user exclude a specific account without removing it
+        # entirely. Defaults to "every cached account is usable" (the
+        # original, unconditional behavior).
+        self._is_enabled = is_enabled or (lambda home_account_id: True)
         self._lock = threading.Lock()
         # Per tenant+client cache file -- see the matching comment on
         # DeviceCodeProvider.__init__ for why this isn't the shared legacy
@@ -378,15 +385,23 @@ class AccountPoolManager(TokenProvider):
             _save_cache(self._cache, self._cache_path)
 
     def _accounts(self) -> list:
+        """Only accounts eligible for actual USE in a run (per the
+        is_enabled policy) -- NOT every cached account. list_accounts() is
+        separate and intentionally shows everything (including disabled
+        ones) so the UI can let you re-enable them."""
         with self._lock:
-            return self._app.get_accounts()
+            all_accounts = self._app.get_accounts()
+        return [a for a in all_accounts if self._is_enabled(a.get("home_account_id"))]
 
     def get_token_for(self, key: str) -> str:
         """Stable per-key assignment: the same key (e.g. a virtual-user id) always
         maps to the same pooled account, so one session keeps one identity throughout."""
         accounts = self._accounts()
         if not accounts:
-            raise RuntimeError("No accounts in the pool yet. Add at least one via the wizard.")
+            raise RuntimeError(
+                "No ENABLED accounts in the pool. Add one via the wizard, or "
+                "re-enable an existing one in the Accounts tab (it may be "
+                "unchecked there).")
         account = accounts[hash(key) % len(accounts)]
         result = self._app.acquire_token_silent(self.scope, account=account)
         if not result or "access_token" not in result:
@@ -399,7 +414,10 @@ class AccountPoolManager(TokenProvider):
         """Fallback for callers with no per-session key: round-robin on every call."""
         accounts = self._accounts()
         if not accounts:
-            raise RuntimeError("No accounts in the pool yet. Add at least one via the wizard.")
+            raise RuntimeError(
+                "No ENABLED accounts in the pool. Add one via the wizard, or "
+                "re-enable an existing one in the Accounts tab (it may be "
+                "unchecked there).")
         with self._lock:
             account = accounts[self._rr_idx % len(accounts)]
             self._rr_idx += 1

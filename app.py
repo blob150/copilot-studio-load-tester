@@ -142,7 +142,12 @@ def _get_pool_manager(tenant_id: str, client_id: str, scope: list[str] | None = 
     # a bad value every 1.5s (as the pool-add polling loop does) could stall
     # unrelated requests for the whole app. A harmless duplicate construction
     # in a rare race is fine -- cheap, and the dict assignment is atomic.
-    pm = AccountPoolManager(tenant_id, client_id, scope=scope)
+    # is_enabled does a live DB lookup each call (not cached at construction
+    # time), so toggling an account on/off in the Accounts tab takes effect
+    # on the very next run -- no need to rebuild the pool manager.
+    pm = AccountPoolManager(
+        tenant_id, client_id, scope=scope,
+        is_enabled=lambda haid: run_store.is_account_enabled(tenant_id, client_id, haid))
     with _lock:
         _state["pool_managers"].setdefault(key, pm)
         return _state["pool_managers"][key]
@@ -179,7 +184,10 @@ def api_pool_accounts():
         return jsonify([])
     scope = tp_scope_for_protocol(request.args.get("protocol"))
     pm = _get_pool_manager(tenant_id, client_id, scope)
-    return jsonify(pm.list_accounts())
+    accounts = pm.list_accounts()
+    for a in accounts:
+        a["enabled"] = run_store.is_account_enabled(tenant_id, client_id, a.get("home_account_id"))
+    return jsonify(accounts)
 
 
 @app.route("/api/pool/accounts_all")
@@ -219,6 +227,7 @@ def api_pool_accounts_all():
             a["tenant_id"] = t["tenant_id"]
             a["client_id"] = t["client_id"]
             a["profile_name"] = t["profile_name"]
+            a["enabled"] = run_store.is_account_enabled(t["tenant_id"], t["client_id"], a.get("home_account_id"))
             seen_haids.add(a.get("home_account_id"))
             out.append(a)
         dc = DeviceCodeProvider(t["tenant_id"], t["client_id"], prompt=lambda f: None, scope=scope)
@@ -228,8 +237,24 @@ def api_pool_accounts_all():
             a["tenant_id"] = t["tenant_id"]
             a["client_id"] = t["client_id"]
             a["profile_name"] = t["profile_name"]
+            a["enabled"] = run_store.is_account_enabled(t["tenant_id"], t["client_id"], a.get("home_account_id"))
             out.append(a)
     return jsonify(out)
+
+
+@app.route("/api/pool/toggle", methods=["POST"])
+def api_pool_toggle():
+    """Mark a specific cached account as enabled/disabled for actual USE in
+    a run, without removing it from the cache (toggle it back on any time).
+    Independent of which tenant/pool is currently selected in the Live Test
+    form -- the request carries its own tenant_id/client_id."""
+    body = request.json or {}
+    tenant_id, client_id = body.get("tenant_id"), body.get("client_id")
+    home_account_id = body.get("home_account_id")
+    if not tenant_id or not client_id or not home_account_id:
+        return jsonify({"error": "tenant_id, client_id, and home_account_id are required"}), 400
+    run_store.set_account_enabled(tenant_id, client_id, home_account_id, bool(body.get("enabled", True)))
+    return jsonify({"ok": True})
 
 
 @app.route("/api/pool/remove", methods=["POST"])
