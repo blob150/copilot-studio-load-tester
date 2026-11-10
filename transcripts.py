@@ -20,7 +20,7 @@ import re
 import msal
 import requests
 
-from token_provider import _load_cache
+from token_provider import _load_cache, _cache_path_for
 
 # tool/connector/action signals that may appear in transcript content JSON
 _SIGNALS = {
@@ -30,18 +30,59 @@ _SIGNALS = {
     "knowledge": re.compile(r'"KnowledgeSource"'),
 }
 
+# The same cache-suffix conventions token_provider.py's providers actually write to
+# (see AccountPoolManager/DeviceCodeProvider/ConfidentialAuthCodeProvider). This
+# function previously only ever checked the single legacy shared `.token_cache.bin`
+# file (via _load_cache() with no path), which is NOT where any of those providers
+# actually persist tokens -- so "No cached Dataverse token" fired unconditionally
+# for every tenant/client, even ones with perfectly valid, actively-used sign-ins.
+_CACHE_SUFFIXES = ["pool", "devicecode", "confidential"]
 
-def _dataverse_token(org_url: str, tenant_id: str, client_id: str) -> str | None:
-    cache = _load_cache()
-    app = msal.PublicClientApplication(
-        client_id, authority=f"https://login.microsoftonline.com/{tenant_id}",
-        token_cache=cache)
-    accounts = app.get_accounts()
-    if not accounts:
-        return None
+
+def _dataverse_token(org_url: str, tenant_id: str, client_id: str) -> tuple[str | None, str]:
+    """Returns (access_token or None, diagnostic note). Tries every cache file this
+    tenant/client combo could plausibly have signed in through, across every account
+    found in any of them, and reports the MOST SPECIFIC failure reason encountered
+    (e.g. a real AADSTS consent error) rather than a generic catch-all."""
     scope = [org_url.rstrip("/") + "/.default"]
-    res = app.acquire_token_silent(scope, account=accounts[0])
-    return res.get("access_token") if res else None
+    seen_accounts = False
+    last_error = None
+    for suffix in _CACHE_SUFFIXES:
+        path = _cache_path_for(tenant_id, client_id, suffix)
+        if not path.exists():
+            continue
+        cache = _load_cache(path)
+        app = msal.PublicClientApplication(
+            client_id, authority=f"https://login.microsoftonline.com/{tenant_id}",
+            token_cache=cache)
+        for account in app.get_accounts():
+            seen_accounts = True
+            # acquire_token_silent() swallows the real failure reason and just
+            # returns None on ANY error -- acquire_token_silent_with_error()
+            # returns the actual {"error": ..., "error_description": ...} dict
+            # (e.g. AADSTS65001/consent_required), which is the only way to
+            # tell "needs one-time consent for this resource" apart from any
+            # other silent-auth failure.
+            res = app.acquire_token_silent_with_error(scope, account=account)
+            if res and res.get("access_token"):
+                return res["access_token"], ""
+            if res and res.get("error"):
+                # Keep the most informative one seen (AADSTS65001/consent_required
+                # is the common real-world case: the app registration has never
+                # been granted delegated access to THIS resource, which is a
+                # one-time admin/user consent action, not a sign-in problem).
+                last_error = f"{res.get('error')}: {res.get('error_description', '')[:300]}"
+    if not seen_accounts:
+        return None, ("No cached sign-in found for this tenant/app registration in any "
+                       "of this tool's token caches. Sign in via the Live Test or Accounts "
+                       "tab first, then retry.")
+    if last_error:
+        return None, (f"Found a cached sign-in, but Dataverse access was refused: {last_error}. "
+                       "This usually means the app registration has never been granted "
+                       "delegated access to THIS Dataverse environment specifically -- "
+                       "a one-time consent grant, separate from your Copilot Studio sign-in.")
+    return None, ("Found a cached sign-in, but silently acquiring a Dataverse token failed "
+                  "for an unknown reason. Try re-authenticating and retry.")
 
 
 def enrich_run(org_url: str, tenant_id: str, client_id: str,
@@ -50,10 +91,9 @@ def enrich_run(org_url: str, tenant_id: str, client_id: str,
     out = {"status": "unavailable", "checked_convs": 0, "tool_calls": 0,
            "connector_calls": 0, "action_calls": 0, "knowledge_hits": 0,
            "tools": {}, "note": ""}
-    token = _dataverse_token(org_url, tenant_id, client_id)
+    token, note = _dataverse_token(org_url, tenant_id, client_id)
     if not token:
-        out["note"] = ("No cached Dataverse token. Sign in (the app registration needs "
-                       "delegated access to this environment's Dataverse) and retry.")
+        out["note"] = note
         return out
 
     api = org_url.rstrip("/") + "/api/data/v9.2"
