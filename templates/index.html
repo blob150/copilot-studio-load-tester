@@ -197,6 +197,7 @@
       <span class="tag" id="phaseTag">idle</span>
     </div>
     <div class="runctl">
+      <span class="tag" id="runTimer" style="display:none;font-variant-numeric:tabular-nums"></span>
       <button class="btn" id="startBtn" style="width:auto;margin:0">Start Test</button>
       <button class="btn stop" id="stopBtn" style="width:auto;margin:0;display:none">Stop Test</button>
     </div>
@@ -1232,11 +1233,18 @@ $('startBtn').onclick = async () => {
   if(d.error){ alert(d.error); return; }
   $('startBtn').style.display='none'; $('stopBtn').style.display='block';
   if(!polling) polling = setInterval(poll, 1000);
+  poll(); // don't wait a full second for the timer/stats to appear
 };
 $('stopBtn').onclick = async () => {
   await fetch('/api/stop',{method:'POST'});
 };
 
+function fmtDuration(secs){
+  secs = Math.round(secs);
+  if(secs < 60) return `${secs}s`;
+  const h = Math.floor(secs/3600), m = Math.floor((secs%3600)/60), s = secs%60;
+  return h>0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+}
 async function poll(){
   const r = await fetch('/api/status'); const s = await r.json();
   $('phaseTag').textContent = s.phase || 'idle';
@@ -1244,7 +1252,12 @@ async function poll(){
     $('deviceBanner').style.display='block';
     $('deviceBanner').innerHTML = `Sign in: open <a href="${s.device_prompt.url}" target="_blank">${s.device_prompt.url}</a> and enter code <code>${s.device_prompt.code}</code>`;
   } else { $('deviceBanner').style.display='none'; }
-  if(s.total===undefined) return;
+  if(s.total===undefined){ $('runTimer').style.display='none'; return; }
+  const rt = $('runTimer');
+  rt.style.display = 'inline-flex';
+  rt.textContent = (s.running ? '● ' : '■ ') + fmtDuration(s.elapsed||0) + (s.running ? ' running' : ' (stopped)');
+  rt.style.color = s.running ? 'var(--ok)' : 'var(--muted)';
+  rt.style.borderColor = s.running ? 'var(--ok-border)' : 'var(--line)';
   $('k_total').textContent=s.total; $('k_success').textContent=s.success_rate+'%';
   $('k_err').textContent=s.errors; $('k_thr').textContent=s.throttled;
   $('k_active').textContent=s.active_sessions; $('k_rpm').textContent=s.achieved_rpm;
@@ -1289,6 +1302,20 @@ async function poll(){
     clearInterval(polling); polling=null;
   }
 }
+
+// If the page is loaded/reloaded while a run is already in progress server-side
+// (e.g. an accidental refresh mid-test), detect it immediately and resume
+// polling + show Stop/the timer -- instead of silently looking idle with no
+// way to tell a test is actually still running until Start is clicked and
+// fails with "already in progress".
+(async () => {
+  const r = await fetch('/api/status'); const s = await r.json();
+  if(s.running){
+    $('startBtn').style.display='none'; $('stopBtn').style.display='block';
+    if(!polling) polling = setInterval(poll, 1000);
+    poll();
+  }
+})();
 
 function line(cv, series, keys, colors, maxHint){
   const c=cv.getContext('2d'), W=cv.width=cv.clientWidth, H=cv.height=cv.clientHeight;
@@ -1354,8 +1381,7 @@ async function loadHistory(){
     const sessions = sm.conversation_count ?? '';
     let duration = '—';
     if(r.created!=null && r.ended!=null){
-      const secs = Math.round(r.ended - r.created);
-      duration = secs<60 ? `${secs}s` : `${Math.floor(secs/60)}m ${secs%60}s`;
+      duration = fmtDuration(r.ended - r.created);
     }
     const status = r.status || '—';
     const statusCls = /complete/i.test(status) ? 'ok' : (/error|fail/i.test(status) ? 'err' : 'neutral');
