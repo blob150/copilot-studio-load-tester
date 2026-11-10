@@ -232,18 +232,12 @@
         <option value="d2e">Direct-to-Engine (D2E)</option>
         <option value="a2a">A2A (preview; streaming)</option>
       </select>
-
-      <label style="margin-top:12px">Agent harness</label>
-      <select id="harness">
-        <option value="unknown">Unknown / not sure</option>
-        <option value="standard">Standard harness (classic Copilot Studio agent)</option>
-        <option value="ghcp">GitHub Copilot harness (new agent experience)</option>
-      </select>
       <p class="muted" style="font-size:11px;margin:4px 0 0">
-        There's no API that reports this, so tell the tool what you're testing --
-        it's shown as-is in Run History (labeled "declared"). The one exception:
-        if a D2E run gets the harness's canned rejection message back, that's a real
-        positive detection and overrides this to show what actually happened.
+        Also tells us which harness this is: D2E only ever works for Standard-harness
+        agents (GitHub Copilot harness agents hard-reject it outright), so a D2E run
+        is Standard by definition; A2A exists specifically to reach GitHub Copilot
+        harness agents that D2E can't. Shown automatically in Run History -- no
+        separate field needed.
       </p>
 
       <label style="margin-top:12px" id="urlLabel">Endpoint URL (paste full D2E URL)</label>
@@ -799,7 +793,6 @@ async function parseUrl(){
 // tenant/client/auth_mode so a full test setup survives reloads together.
 function saveUrlAndProtocol(){
   localStorage.setItem('lastProtocol', $('protocol').value);
-  localStorage.setItem('lastHarness', $('harness').value);
   const u = $('url').value.trim();
   if(u) localStorage.setItem('lastUrl', u);
 }
@@ -808,10 +801,6 @@ function loadUrlAndProtocol(){
   if(p && Array.from($('protocol').options).some(o=>o.value===p)){
     $('protocol').value = p;
   }
-  const h = localStorage.getItem('lastHarness');
-  if(h && Array.from($('harness').options).some(o=>o.value===h)){
-    $('harness').value = h;
-  }
   const u = localStorage.getItem('lastUrl');
   if(u && !$('url').value) $('url').value = u;
 }
@@ -819,7 +808,6 @@ $('url').addEventListener('input', parseUrl);
 $('url').addEventListener('blur', parseUrl);
 $('url').addEventListener('change', saveUrlAndProtocol);
 $('protocol').addEventListener('change', saveUrlAndProtocol);
-$('harness').addEventListener('change', saveUrlAndProtocol);
 loadUrlAndProtocol();
 $('protocol').onchange = e => {
   const isA2A = e.target.value==='a2a';
@@ -990,7 +978,7 @@ $('protocol').dispatchEvent(new Event('change'));
 
 function cfg(){
   return {
-    protocol:$('protocol').value, harness:$('harness').value,
+    protocol:$('protocol').value,
     url:$('url').value, host:$('host').value, schema:$('schema').value,
     a2a_url:$('url').dataset.a2aUrl || '',
     environment_id:$('environment_id').value, org_url:$('org_url').value,
@@ -1014,9 +1002,6 @@ function applyConfig(c){
   if(!c) return;
   const set = (id,val) => { if(val!==undefined && val!==null) $(id).value = val; };
   if(c.protocol){ $('protocol').value = c.protocol; $('protocol').dispatchEvent(new Event('change')); }
-  if(c.harness && Array.from($('harness').options).some(o=>o.value===c.harness)){
-    $('harness').value = c.harness;
-  }
   set('url', c.url); parseUrl();
   set('environment_id', c.environment_id); set('org_url', c.org_url);
   if(c.auth_mode){ $('auth_mode').value = c.auth_mode; $('auth_mode').dispatchEvent(new Event('change')); }
@@ -1391,31 +1376,32 @@ async function loadHistory(){
     const liveKnow = lt.knowledge_hits!=null?lt.knowledge_hits:'';
     const transTools = te.status==='ok'?te.tool_calls:(te.status?te.status:'—');
     const cfg = r.config||{};
-    // Harness display: a real positive detection (D2E's canned-rejection scan)
-    // always wins when present -- it's empirical proof, not a guess. Otherwise
-    // fall back to whatever the user explicitly declared at setup time (there
-    // is no API that reports this, so "Standard (assumed)" used to be shown
-    // unconditionally even for protocols/cases with zero actual signal --
-    // e.g. every A2A run -- which was actively misleading). With nothing
-    // detected AND nothing declared, say so plainly instead of guessing.
+    // Harness display: derived from protocol, which is a reliable proxy in
+    // practice -- D2E only ever works for Standard-harness agents (GitHub
+    // Copilot harness agents hard-reject it outright with a canned refusal),
+    // and A2A exists specifically because it's the only way to reach GitHub
+    // Copilot harness agents that D2E can't. A real positive detection (the
+    // D2E rejection scan actually firing) still overrides this, since that's
+    // empirical proof rather than an inference -- it means this particular
+    // "D2E" run was actually talking to a GHCP-harness agent that rejected it.
     const detected = lt.harness_guess || sm.harness_guess || '';
-    const declared = cfg.harness;
     let harness, harnessCls = '', harnessTitle;
     if(detected.includes('rejected')){
       harness = detected;
       harnessCls = 'harness-warn';
       harnessTitle = 'This agent rejected the D2E endpoint outright (HTTP 200 + canned refusal). '+
         'No real conversation occurred -- treat this run\'s results as invalid.';
-    } else if(declared === 'ghcp'){
-      harness = 'GitHub Copilot harness (declared)';
-      harnessTitle = 'As selected on the Live Test tab when this run was configured -- not auto-detected.';
-    } else if(declared === 'standard'){
-      harness = 'Standard harness (declared)';
-      harnessTitle = 'As selected on the Live Test tab when this run was configured -- not auto-detected.';
+    } else if(cfg.protocol === 'a2a'){
+      harness = 'GitHub Copilot harness (A2A)';
+      harnessTitle = 'Derived from protocol: A2A exists specifically to reach GitHub Copilot '+
+        'harness agents, since D2E hard-rejects them.';
+    } else if(cfg.protocol === 'd2e'){
+      harness = 'Standard harness (D2E)';
+      harnessTitle = 'Derived from protocol: D2E only works for Standard-harness agents -- '+
+        'GitHub Copilot harness agents reject it outright (see the rejection-detection case above).';
     } else {
       harness = 'Unknown';
-      harnessTitle = 'Not declared at setup, and no positive detection signal fired for this run '+
-        '(auto-detection only exists for the D2E GitHub-Copilot-harness rejection case).';
+      harnessTitle = 'No protocol recorded for this run.';
     }
     const mode = cfg.mode || '—';
     const targetConc = mode==='smoke' ? cfg.smoke_sessions
