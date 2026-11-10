@@ -368,6 +368,12 @@
       <textarea id="prompts">What is the standard operating procedure for onboarding?
 Summarize the safety guidelines for lab access.
 What are the steps to file an incident report?</textarea>
+      <label style="margin-top:12px">Prompt order</label>
+      <select id="prompt_order">
+        <option value="random">Random pool -- each turn independently samples a random line</option>
+        <option value="sequential">Sequential script -- turn 1 uses line 1, turn 2 uses line 2, etc.</option>
+      </select>
+      <p class="muted" style="font-size:11px;margin:4px 0 0" id="promptOrderHint"></p>
       <label>Run label</label><input id="label" placeholder="e.g. Event spike sim 2k">
     </div>
   </div><!-- /config-col -->
@@ -809,6 +815,35 @@ $('url').addEventListener('blur', parseUrl);
 $('url').addEventListener('change', saveUrlAndProtocol);
 $('protocol').addEventListener('change', saveUrlAndProtocol);
 loadUrlAndProtocol();
+
+// Prompt order: persisted like auth_mode/protocol so it survives reloads.
+// Live hint tells you exactly what will happen given the current prompt
+// count vs turns -- especially important in sequential mode, where having
+// fewer lines than turns means it wraps back to the top instead of erroring.
+function savePromptOrder(){ localStorage.setItem('lastPromptOrder', $('prompt_order').value); }
+function loadPromptOrder(){
+  const v = localStorage.getItem('lastPromptOrder');
+  if(v && Array.from($('prompt_order').options).some(o=>o.value===v)) $('prompt_order').value = v;
+}
+function updatePromptOrderHint(){
+  const n = $('prompts').value.split('\n').map(s=>s.trim()).filter(Boolean).length;
+  const turns = +$('turns_per_session').value || 0;
+  const hint = $('promptOrderHint');
+  if($('prompt_order').value === 'sequential'){
+    if(n === 0){ hint.textContent = 'Add at least one prompt line.'; return; }
+    if(n >= turns){ hint.textContent = `Turn 1→${turns} will use lines 1→${turns} in order.`; }
+    else { hint.textContent = `Only ${n} line(s) for ${turns} turns -- will cycle back to line 1 `+
+      `after line ${n} (turn ${n+1} repeats line 1, etc).`; }
+  } else {
+    hint.textContent = `Each of the ${turns} turns independently picks a random line from your ${n} prompt(s).`;
+  }
+}
+$('prompt_order').addEventListener('change', () => { savePromptOrder(); updatePromptOrderHint(); });
+$('prompts').addEventListener('input', updatePromptOrderHint);
+$('turns_per_session').addEventListener('input', updatePromptOrderHint);
+loadPromptOrder();
+updatePromptOrderHint();
+
 $('protocol').onchange = e => {
   const isA2A = e.target.value==='a2a';
   $('urlLabel').textContent = isA2A
@@ -994,6 +1029,7 @@ function cfg(){
     turns_per_session:+$('turns_per_session').value, request_timeout:+$('request_timeout').value,
     think_time_seconds:[+$('think_min').value,+$('think_max').value],
     prompts:$('prompts').value.split('\n').map(s=>s.trim()).filter(Boolean),
+    prompt_order:$('prompt_order').value,
     stop_on_throttle:$('stop_on_throttle').checked, label:$('label').value
   };
 }
@@ -1017,8 +1053,12 @@ function applyConfig(c){
   set('turns_per_session', c.turns_per_session); set('request_timeout', c.request_timeout);
   if(c.think_time_seconds){ set('think_min', c.think_time_seconds[0]); set('think_max', c.think_time_seconds[1]); }
   if(c.prompts) set('prompts', c.prompts.join('\n'));
+  if(c.prompt_order && Array.from($('prompt_order').options).some(o=>o.value===c.prompt_order)){
+    $('prompt_order').value = c.prompt_order;
+  }
   $('stop_on_throttle').checked = !!c.stop_on_throttle;
   set('label', c.label);
+  updatePromptOrderHint();
 }
 
 let presetsCache = [];

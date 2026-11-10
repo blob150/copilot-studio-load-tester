@@ -66,11 +66,18 @@ class LoadEngine:
             prompts = self.cfg.get("prompts") or ["Hello"]
             turns = int(self.cfg.get("turns_per_session", 4))
             tmin, tmax = self.cfg.get("think_time_seconds", [5, 15])
-            for _ in range(turns):
+            sequential = (self.cfg.get("prompt_order") == "sequential")
+            for turn_idx in range(turns):
                 if self._stop.is_set():
                     break
                 token = self._get_token(user_id)
-                prompt_text = random.choice(prompts)
+                # Sequential: turn N uses prompts[N] in order, scripting a real
+                # multi-turn conversation (e.g. a follow-up question that only
+                # makes sense after the first) -- wraps around if there are
+                # more turns than prompt lines. Random (default): independently
+                # sample a prompt each turn, as before.
+                prompt_text = prompts[turn_idx % len(prompts)] if sequential \
+                    else random.choice(prompts)
                 r = self.client.send_message(token, conv, prompt_text,
                                              user_id=user_id)
                 r.user_id = user_id
