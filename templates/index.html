@@ -5,26 +5,72 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Copilot Studio Agent Load Tester</title>
 <style>
-  :root{--bg:#0f1115;--panel:#1a1d24;--panel2:#22262f;--ink:#e6e8ec;--muted:#9aa3b2;
-    --accent:#4ea1ff;--ok:#36c08a;--warn:#f2b441;--err:# e85c5c;--err:#e85c5c;--line:#2c313c;}
+  :root{
+    --bg:#11151c;--panel:#171c25;--panel2:#1e2531;--ink:#e7ebf3;--muted:#8e97a8;
+    --accent:#38d6c0;--accent-dim:#1f7c71;--ok:#3ecf8e;--warn:#f0b53d;--err:#f26868;--line:#2a3140;
+    --ok-bg:#163227;--ok-border:#1d4a37;--warn-bg:#352709;--warn-border:#52390c;--err-bg:#3a1616;
+    --hover-bg:#262e3c;--derived-bg:#14181f;--note-bg:#1a2230;--note-border:#2a3140;--note-ink:#8e97a8;
+    --card-shadow:none;--btn-shadow:none;--menu-shadow:0 12px 30px rgba(0,0,0,.4);--btn-ink:#06201c;
+    --devcode-bg:#20303f;
+  }
+  body[data-theme="light"]{
+    --bg:#f4f6fb;--panel:#ffffff;--panel2:#f1f3f8;--ink:#1b2433;--muted:#6b7585;
+    --accent:#5b5bf0;--accent-dim:#4747c9;--ok:#1a9c6b;--warn:#b8860b;--err:#c23b3b;--line:#e2e6f0;
+    --ok-bg:#e3f7ee;--ok-border:#c7ecda;--warn-bg:#fdf2da;--warn-border:#f3dca0;--err-bg:#fbe9e9;
+    --hover-bg:#f1f3f8;--derived-bg:#eceffa;--note-bg:#eef0ff;--note-border:#d8dbfb;--note-ink:#444a7a;
+    --card-shadow:0 1px 3px rgba(20,25,50,.04);--btn-shadow:0 2px 8px rgba(91,91,240,.35);
+    --menu-shadow:0 14px 34px rgba(20,25,50,.16);--btn-ink:#ffffff;--devcode-bg:#eef0ff;
+  }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Segoe UI,system-ui,sans-serif}
-  header{padding:14px 22px;background:var(--panel);border-bottom:1px solid var(--line);
-    display:flex;align-items:center;gap:14px}
-  header h1{font-size:17px;margin:0;font-weight:600}
-  .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:2px 8px;border-radius:20px}
-  .wrap{display:grid;grid-template-columns:340px 1fr;gap:18px;padding:18px}
-  .panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
-  .panel h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);
-    margin:0 0 12px}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 Segoe UI,system-ui,sans-serif;
+    transition:background .15s ease,color .15s ease}
+
+  /* --- Sidebar icon rail (replaces top pill tabs) --- */
+  .shell{display:grid;grid-template-columns:64px 1fr;min-height:100vh}
+  nav.rail{background:var(--panel);border-right:1px solid var(--line);display:flex;
+    flex-direction:column;align-items:center;padding:16px 0;gap:6px;position:sticky;top:0;
+    height:100vh}
+  nav.rail .brand{width:34px;height:34px;border-radius:9px;
+    background:linear-gradient(135deg,var(--accent),var(--accent-dim));margin-bottom:10px;
+    display:flex;align-items:center;justify-content:center;font-weight:800;color:var(--btn-ink);
+    font-size:13px}
+  .tab{width:44px;height:44px;border-radius:10px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;color:var(--muted);cursor:pointer;font-size:17px;
+    position:relative;border:none;background:none}
+  .tab.active{background:var(--panel2);color:var(--accent)}
+  .tab.active::before{content:"";position:absolute;left:-16px;top:50%;transform:translateY(-50%);
+    width:3px;height:20px;background:var(--accent);border-radius:3px}
+  .tab:hover{color:var(--ink)}
+  .tab .rail-label{font-size:9px;margin-top:2px;letter-spacing:.03em}
+  .rail-spacer{flex:1}
+  .theme-toggle{width:44px;height:44px;border-radius:10px;display:flex;flex-direction:column;
+    align-items:center;justify-content:center;color:var(--muted);cursor:pointer;font-size:16px;
+    border:none;background:none}
+  .theme-toggle:hover{color:var(--ink)}
+  .theme-toggle .rail-label{font-size:9px;margin-top:2px}
+
+  main.content{padding:18px 26px}
+  .pagehead{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+  .pagehead h1{font-size:17px;margin:0;font-weight:700}
+  .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:3px 10px;border-radius:20px}
+  .runctl{display:flex;align-items:center;gap:10px}
+
+  .wrap{display:grid;grid-template-columns:1fr 3fr;gap:18px;padding:0;align-items:start}
+  .pagehead{grid-column:1 / -1}
+  .config-col{display:flex;flex-direction:column;gap:16px}
+  .results-pane{position:sticky;top:18px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;
+    box-shadow:var(--card-shadow)}
+  .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
+    margin:0 0 12px;display:flex;align-items:center;justify-content:space-between;font-weight:700}
   label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
   input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);
     color:var(--ink);border-radius:7px;padding:8px 10px;font:inherit}
-  input.derived{background:#15181e;color:var(--muted);border-style:dashed;cursor:not-allowed}
+  input.derived{background:var(--derived-bg);color:var(--muted);border-style:dashed;cursor:not-allowed}
   textarea{resize:vertical;min-height:60px}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .btn{background:var(--accent);color:#061018;border:none;border-radius:7px;padding:10px 16px;
-    font-weight:600;cursor:pointer;width:100%;margin-top:14px}
+  .btn{background:var(--accent);color:var(--btn-ink);border:none;border-radius:7px;padding:10px 16px;
+    font-weight:700;cursor:pointer;width:100%;margin-top:14px;box-shadow:var(--btn-shadow)}
   .btn.stop{background:var(--err);color:#fff}
   .btn:disabled{opacity:.5;cursor:not-allowed}
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
@@ -33,34 +79,31 @@
   .kpi .l{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
   .kpi.ok .v{color:var(--ok)} .kpi.err .v{color:var(--err)} .kpi.warn .v{color:var(--warn)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-  canvas{width:100%;height:180px;background:var(--panel2);border-radius:8px}
+  canvas{width:100%;height:200px;background:var(--panel2);border-radius:8px}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
   th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase}
   .pill{padding:1px 8px;border-radius:20px;font-size:11px;font-weight:600}
-  .s2{background:#143; color:var(--ok)} .s4{background:#432;color:var(--warn)}
-  .s5,.s0{background:#422;color:var(--err)}
+  .s2{background:var(--ok-bg);color:var(--ok)} .s4{background:var(--warn-bg);color:var(--warn)}
+  .s5,.s0{background:var(--err-bg);color:var(--err)}
   .feed{max-height:230px;overflow:auto;font-size:12px;font-family:Consolas,monospace}
   .feed .r{padding:3px 6px;border-bottom:1px solid var(--line);display:flex;gap:10px}
   .phase{font-weight:600;color:var(--accent)}
-  .banner{background:#20303f;border:1px solid var(--accent);border-radius:8px;padding:12px;
+  .banner{background:var(--devcode-bg);border:1px solid var(--accent);border-radius:8px;padding:12px;
     margin-bottom:14px;font-size:13px}
-  .banner a{color:var(--accent)} .banner code{font-size:16px;font-weight:700;color:#fff}
-  .devcode-box{background:#20303f;border:2px solid var(--accent);border-radius:8px;
+  .banner a{color:var(--accent)} .banner code{font-size:16px;font-weight:700;color:var(--ink)}
+  .devcode-box{background:var(--devcode-bg);border:2px solid var(--accent);border-radius:8px;
     padding:14px;margin:8px 0;font-size:14px}
   .devcode-box .lbl{color:var(--muted);font-size:12px;margin-bottom:6px}
   .devcode-row{display:flex;align-items:center;gap:10px;margin-top:6px}
-  .devcode-code{font-size:24px;font-weight:700;letter-spacing:.08em;color:#fff;
-    background:#0f1115;border:1px solid var(--line);border-radius:6px;padding:8px 14px;
+  .devcode-code{font-size:24px;font-weight:700;letter-spacing:.08em;color:var(--ink);
+    background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:8px 14px;
     font-family:Consolas,monospace;user-select:all}
   .devcode-copy{width:auto;margin:0;padding:8px 14px;font-size:13px;flex-shrink:0}
   .devcode-copy.copied{background:var(--ok)}
   .muted{color:var(--muted)} .mt{margin-top:16px}
   .hist td{font-size:12px}
   .credits{font-size:11px}
-  .tabs{display:flex;gap:8px;margin-bottom:14px}
-  .tab{padding:7px 14px;border:1px solid var(--line);border-radius:7px;cursor:pointer;color:var(--muted)}
-  .tab.active{background:var(--panel);color:var(--ink);border-color:var(--accent)}
   .icon-btn{width:auto;display:inline-flex;align-items:center;gap:6px;margin:0;padding:4px 10px;
     font-size:12px;font-weight:600;background:var(--panel2);color:var(--ink);
     border:1px solid var(--line);border-radius:6px;cursor:pointer}
@@ -77,175 +120,241 @@
   .modal-close{width:auto;margin:0;padding:4px 10px;background:var(--panel2);
     color:var(--ink);border:1px solid var(--line);font-size:16px;line-height:1;border-radius:6px}
   .modal-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+
+  /* --- Unified "⋯ Manage" popover: one overflow button for Save-as-new/Update/Delete,
+       instead of 3-4 separate buttons stacked under every saved-entity dropdown --- */
+  .manage{position:relative}
+  .manage-btn{width:26px;height:26px;border-radius:7px;border:1px solid var(--line);
+    background:var(--panel2);color:var(--muted);cursor:pointer;font-size:14px;line-height:1}
+  .manage-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .manage-menu{display:none;position:absolute;right:0;top:32px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:9px;padding:10px;min-width:240px;z-index:30;
+    box-shadow:var(--menu-shadow)}
+  .manage-menu.open{display:block}
+  .manage-menu .mm-row{display:flex;gap:6px;margin-bottom:8px}
+  .manage-menu .mm-row:last-child{margin-bottom:0}
+  .manage-menu input{flex:1}
+  .manage-menu button{white-space:nowrap;width:auto;margin:0;padding:8px 10px;font-size:12px}
+  .manage-menu button.danger{background:var(--err);color:#fff}
+  .manage-menu button.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
+  .manage-menu .mm-hint{font-size:10.5px;color:var(--muted);margin:0 0 8px}
+
+  /* --- Run History card-row redesign (replaces the 17-column table) --- */
+  .hist-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .runlist{display:flex;flex-direction:column;gap:10px}
+  .run-row{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;
+    box-shadow:var(--card-shadow)}
+  .run-row .top{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .run-row .when{font-size:11px;color:var(--muted);min-width:120px}
+  .run-row .rlabel{font-weight:700;font-size:13.5px;flex:1;min-width:160px}
+  .run-row .rlabel .sub{font-weight:400;color:var(--muted);font-size:11.5px;margin-top:2px}
+  .badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:700;white-space:nowrap}
+  .badge.ok{background:var(--ok-bg);color:var(--ok)}
+  .badge.err{background:var(--err-bg);color:var(--err)}
+  .badge.neutral{background:var(--panel2);color:var(--muted)}
+  .metrics-strip{display:flex;gap:18px;margin-left:4px;flex-wrap:wrap}
+  .metrics-strip .m{text-align:center}
+  .metrics-strip .m .v{font-weight:700;font-size:13.5px}
+  .metrics-strip .m .l{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .row-actions{display:flex;align-items:center;gap:6px;position:relative}
+  .icon-btn.square{width:30px;height:30px;padding:0;justify-content:center}
+  .expand-toggle{background:none;border:none;color:var(--muted);cursor:pointer;font-size:12.5px;padding:4px}
+  .expand-toggle:hover{color:var(--accent)}
+  .run-detail{display:none;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);
+    grid-template-columns:repeat(5,1fr);gap:14px;font-size:12px}
+  .run-detail.open{display:grid}
+  .run-detail .d-l{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+  .run-detail .d-v{font-weight:600}
+  .harness-warn{color:var(--err)}
 </style>
 </head>
 <body>
-<header>
-  <h1>Copilot Studio Agent Load Tester</h1>
-  <span class="tag">local</span>
-  <span class="tag" id="phaseTag">idle</span>
-</header>
-
-<div class="tabs" style="padding:0 18px">
-  <div class="tab active" data-tab="live">Live Test</div>
-  <div class="tab" data-tab="history">Run History</div>
-  <div class="tab" data-tab="accounts">Accounts</div>
-</div>
+<div class="shell">
+  <nav class="rail">
+    <div class="brand">A</div>
+    <div class="tab active" data-tab="live" title="Live Test">▶<div class="rail-label">Test</div></div>
+    <div class="tab" data-tab="history" title="Run History">☰<div class="rail-label">History</div></div>
+    <div class="tab" data-tab="accounts" title="Accounts">◎<div class="rail-label">Accts</div></div>
+    <div class="rail-spacer"></div>
+    <button type="button" class="theme-toggle" id="themeToggleBtn" title="Switch to light mode">☀<div class="rail-label">Light</div></button>
+  </nav>
+  <main class="content">
 
 <!-- LIVE TAB -->
 <div class="wrap" id="tab-live">
-  <div class="panel">
-    <h2>Configuration</h2>
-    <label>Saved configurations</label>
-    <div class="row">
-      <select id="presetSelect"><option value="">— Select a saved config —</option></select>
-      <div style="display:flex;gap:6px">
-        <button class="btn" style="margin:0" id="loadPresetBtn">Load</button>
-        <button class="btn" style="margin:0;background:var(--err);color:#fff" id="deletePresetBtn">Delete</button>
-      </div>
+  <div class="pagehead">
+    <div>
+      <h1 style="font-size:17px;margin:0;font-weight:700">Copilot Studio Agent Load Tester</h1>
+      <span class="tag">local</span>
+      <span class="tag" id="phaseTag">idle</span>
     </div>
-    <div class="row" style="margin-top:6px">
-      <button class="btn" style="margin:0;background:var(--panel2);color:var(--ink);border:1px solid var(--line)" id="updatePresetBtn">Update selected</button>
-      <span class="muted" style="font-size:11px;align-self:center">overwrites the config currently selected above with what's on screen now</span>
+    <div class="runctl">
+      <button class="btn" id="startBtn" style="width:auto;margin:0">Start Test</button>
+      <button class="btn stop" id="stopBtn" style="width:auto;margin:0;display:none">Stop Test</button>
     </div>
-    <div class="row" style="margin-top:6px">
-      <input id="presetName" placeholder="Name this configuration…">
-      <button class="btn" style="margin:0" id="savePresetBtn">Save as new</button>
-    </div>
-
-    <label style="margin-top:16px">Protocol</label>
-    <select id="protocol">
-      <option value="d2e">Direct-to-Engine (D2E)</option>
-      <option value="a2a">A2A (preview; streaming)</option>
-    </select>
-
-    <label style="margin-top:12px" id="urlLabel">Endpoint URL (paste full D2E URL)</label>
-    <textarea id="url" placeholder="https://{env}.environment.api.powerplatform.com/copilotstudio/dataverse-backed/authenticated/bots/{schema}/conversations?api-version=2022-03-01-preview"></textarea>
-    <div class="row" id="d2eDerivedRow">
-      <div><label>Host (auto)</label><input id="host" readonly class="derived"></div>
-      <div><label>Schema (auto)</label><input id="schema" readonly class="derived"></div>
-    </div>
-    <div class="row" id="a2aDerivedRow" style="display:none">
-      <div><label>Environment (auto)</label><input id="environment_id_a2a" readonly class="derived"></div>
-      <div><label>Agent (auto)</label><input id="agent_id" readonly class="derived"></div>
-    </div>
-    <label>Environment ID (for credit lookup)</label>
-    <input id="environment_id" placeholder="GUID">
-    <label>Dataverse org URL (for historical tool enrichment)</label>
-    <input id="org_url" placeholder="https://orgxxxx.crm.dynamics.com">
-
-    <label style="margin-top:16px">1. Tenant / app registration</label>
-    <p class="muted" style="font-size:11px;margin:0 0 6px">
-      Pick a saved profile to fill in Tenant ID + Client ID below (optional -- you can
-      also just type them in directly). A profile only remembers WHICH tenant/app
-      registration to use; it does not sign you in by itself -- do that in step 3 below.
-    </p>
-    <div class="row">
-      <select id="authProfileSelect"><option value="">-- Select a saved tenant/app registration --</option></select>
-      <div style="display:flex;gap:6px">
-        <button class="btn" style="margin:0" id="loadAuthProfileBtn">Load</button>
-        <button class="btn" style="margin:0;background:var(--err);color:#fff" id="deleteAuthProfileBtn">Delete</button>
-      </div>
-    </div>
-    <div class="row" style="margin-top:6px">
-      <input id="authProfileName" placeholder="Name this tenant (e.g. PFECRM, DIAx)...">
-      <button class="btn" style="margin:0" id="saveAuthProfileBtn">Save profile</button>
-    </div>
-
-    <label style="margin-top:16px">2. Tenant ID / Client ID</label>
-    <div class="row" id="aadRow">
-      <div><label>Tenant ID</label><input id="tenant_id"></div>
-      <div><label>Client ID</label><input id="client_id"></div>
-    </div>
-
-    <label style="margin-top:16px">3. How will you sign in?</label>
-    <select id="auth_mode">
-      <option value="devicecode">Device code -- one account, sign in below (needs step 4)</option>
-      <option value="pool">Account pool -- sign in multiple accounts via the wizard below (needs step 4)</option>
-      <option value="static">Static bearer token -- paste a token, no sign-in needed</option>
-      <option value="a2a_confidential">A2A: confidential client -- secret required, sign in below (needs step 4)</option>
-    </select>
-    <div id="secretRow" style="display:none">
-      <label>Client secret (confidential app registrations only -- never saved to presets or profiles)</label>
-      <input id="client_secret" type="password" autocomplete="off">
-    </div>
-    <div id="tokRow" style="display:none"><label>Static bearer token</label><textarea id="static_token"></textarea></div>
-
-    <div id="authStep4" style="margin-top:16px">
-      <label style="margin:0">4. Sign in</label>
-      <p class="muted" style="font-size:11px;margin:2px 0 6px" id="authStepHelp"></p>
-      <button class="btn" id="authBtn" style="background:var(--panel2);color:var(--ink);border:1px solid var(--line);margin-top:4px">Authenticate now</button>
-      <div id="authState" class="muted" style="font-size:12px;margin-top:6px"></div>
-
-      <div id="poolWizard" style="display:none;margin-top:10px;border:1px dashed var(--line);border-radius:8px;padding:10px">
-        <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
-          Account pool: click <b>Add account</b> once per test identity. Each click opens a
-          fresh device-code sign-in; use a private/incognito window if your browser is
-          already signed in, so you add a genuinely different account.
-        </div>
-        <button class="btn" style="margin:0 0 8px" id="poolAddBtn">+ Add account</button>
-        <div id="poolAddState" class="muted" style="font-size:12px;margin-bottom:8px"></div>
-        <table style="font-size:12px"><tbody id="poolAccounts"></tbody></table>
-      </div>
-    </div>
-
-    <label>Load mode</label>
-    <select id="mode">
-      <option value="smoke">Smoke test (handful of sessions)</option>
-      <option value="spike">Event spike (ramp/hold/down)</option>
-      <option value="stepped">Stepped RPM (characterization)</option>
-    </select>
-
-    <div id="smokeCfg" style="display:none">
-      <label>Sessions to run</label><input id="smoke_sessions" type="number" value="3">
-      <p class="muted" style="font-size:11px">Fires this many sessions concurrently, once, then stops — a quick end-to-end check of auth/endpoint/prompts before committing to a real load run.</p>
-    </div>
-
-    <div id="spikeCfg">
-      <div class="row">
-        <div><label>Virtual users</label><input id="virtual_users" type="number" value="50"></div>
-        <div><label>Sessions / VU (0=∞)</label><input id="sessions_per_vu" type="number" value="1"></div>
-      </div>
-      <div class="row">
-        <div><label>Ramp-up (s)</label><input id="rampup_seconds" type="number" value="30"></div>
-        <div><label>Hold (s)</label><input id="hold_seconds" type="number" value="120"></div>
-      </div>
-      <label>Ramp-down (s)</label><input id="rampdown_seconds" type="number" value="15">
-    </div>
-
-    <div id="stepCfg" style="display:none">
-      <label>Steps (RPM, comma-sep)</label><input id="steps" value="20,40,60,80">
-      <div class="row">
-        <div><label>Hold each (s)</label><input id="step_hold_seconds" type="number" value="60"></div>
-        <div><label>Max concurrency</label><input id="max_concurrency" type="number" value="100"></div>
-      </div>
-    </div>
-
-    <div class="row mt">
-      <div><label>Turns / session</label><input id="turns_per_session" type="number" value="4"></div>
-      <div><label>Req timeout (s)</label><input id="request_timeout" type="number" value="120"></div>
-    </div>
-    <div class="row">
-      <div><label>Think min (s)</label><input id="think_min" type="number" value="15"></div>
-      <div><label>Think max (s)</label><input id="think_max" type="number" value="45"></div>
-    </div>
-    <div class="label-row">
-      <label style="margin:0">Prompts (one per line)</label>
-      <button type="button" class="icon-btn" id="openPromptSetsBtn" title="Manage reusable question sets">🗂️ Manage sets</button>
-    </div>
-    <textarea id="prompts">What is the standard operating procedure for onboarding?
-Summarize the safety guidelines for lab access.
-What are the steps to file an incident report?</textarea>
-    <label><input type="checkbox" id="stop_on_throttle" style="width:auto"> Stop on first throttle</label>
-    <label>Run label</label><input id="label" placeholder="e.g. Event spike sim 2k">
-
-    <button class="btn" id="startBtn">Start Test</button>
-    <button class="btn stop" id="stopBtn" style="display:none">Stop Test</button>
   </div>
 
-  <div>
+  <div class="config-col">
+    <!-- CONNECTION CARD -->
+    <div class="panel">
+      <h2>Connection
+        <div class="manage">
+          <button type="button" class="manage-btn" onclick="toggleManageMenu('mmPreset')">⋯</button>
+          <div class="manage-menu" id="mmPreset">
+            <p class="mm-hint">Saves/updates the WHOLE test configuration (connection, auth, load shape & prompts) under one name.</p>
+            <div class="mm-row"><input id="presetName" placeholder="Name this configuration…"><button class="btn ghost" style="margin:0" id="savePresetBtn">Save as new</button></div>
+            <div class="mm-row"><button class="btn ghost" style="margin:0" id="updatePresetBtn">Update selected</button></div>
+            <div class="mm-row"><button class="btn danger" style="margin:0" id="deletePresetBtn">Delete selected</button></div>
+          </div>
+        </div>
+      </h2>
+      <label>Saved configurations</label>
+      <div class="row">
+        <select id="presetSelect"><option value="">— Select a saved config —</option></select>
+        <button class="btn" style="margin:0;width:auto" id="loadPresetBtn">Load</button>
+      </div>
+
+      <label style="margin-top:16px">Protocol</label>
+      <select id="protocol">
+        <option value="d2e">Direct-to-Engine (D2E)</option>
+        <option value="a2a">A2A (preview; streaming)</option>
+      </select>
+
+      <label style="margin-top:12px" id="urlLabel">Endpoint URL (paste full D2E URL)</label>
+      <textarea id="url" placeholder="https://{env}.environment.api.powerplatform.com/copilotstudio/dataverse-backed/authenticated/bots/{schema}/conversations?api-version=2022-03-01-preview"></textarea>
+      <div class="row" id="d2eDerivedRow">
+        <div><label>Host (auto)</label><input id="host" readonly class="derived"></div>
+        <div><label>Schema (auto)</label><input id="schema" readonly class="derived"></div>
+      </div>
+      <div class="row" id="a2aDerivedRow" style="display:none">
+        <div><label>Environment (auto)</label><input id="environment_id_a2a" readonly class="derived"></div>
+        <div><label>Agent (auto)</label><input id="agent_id" readonly class="derived"></div>
+      </div>
+      <label>Environment ID (for credit lookup)</label>
+      <input id="environment_id" placeholder="GUID">
+      <label>Dataverse org URL (for historical tool enrichment)</label>
+      <input id="org_url" placeholder="https://orgxxxx.crm.dynamics.com">
+    </div>
+
+    <!-- AUTHENTICATION CARD -->
+    <div class="panel">
+      <h2>Authentication
+        <div class="manage">
+          <button type="button" class="manage-btn" onclick="toggleManageMenu('mmAuthProfile')">⋯</button>
+          <div class="manage-menu" id="mmAuthProfile">
+            <p class="mm-hint">A profile only remembers WHICH tenant/app registration to use -- it does not sign you in itself (do that in step 3).</p>
+            <div class="mm-row"><input id="authProfileName" placeholder="Name this tenant (e.g. PFECRM, DIAx)..."><button class="btn ghost" style="margin:0" id="saveAuthProfileBtn">Save as new</button></div>
+            <div class="mm-row"><button class="btn danger" style="margin:0" id="deleteAuthProfileBtn">Delete selected</button></div>
+          </div>
+        </div>
+      </h2>
+      <label>1. Tenant / app registration</label>
+      <div class="row">
+        <select id="authProfileSelect"><option value="">-- Select a saved tenant/app registration --</option></select>
+        <button class="btn" style="margin:0;width:auto" id="loadAuthProfileBtn">Load</button>
+      </div>
+
+      <label style="margin-top:16px">2. Tenant ID / Client ID</label>
+      <div class="row" id="aadRow">
+        <div><label>Tenant ID</label><input id="tenant_id"></div>
+        <div><label>Client ID</label><input id="client_id"></div>
+      </div>
+
+      <label style="margin-top:16px">3. How will you sign in?</label>
+      <select id="auth_mode">
+        <option value="devicecode">Device code -- one account, sign in below (needs step 4)</option>
+        <option value="pool">Account pool -- sign in multiple accounts via the wizard below (needs step 4)</option>
+        <option value="static">Static bearer token -- paste a token, no sign-in needed</option>
+        <option value="a2a_confidential">A2A: confidential client -- secret required, sign in below (needs step 4)</option>
+      </select>
+      <div id="secretRow" style="display:none">
+        <label>Client secret (confidential app registrations only -- never saved to presets or profiles)</label>
+        <input id="client_secret" type="password" autocomplete="off">
+      </div>
+      <div id="tokRow" style="display:none"><label>Static bearer token</label><textarea id="static_token"></textarea></div>
+
+      <div id="authStep4" style="margin-top:16px">
+        <label style="margin:0">4. Sign in</label>
+        <p class="muted" style="font-size:11px;margin:2px 0 6px" id="authStepHelp"></p>
+        <button class="btn" id="authBtn" style="background:var(--panel2);color:var(--ink);border:1px solid var(--line);margin-top:4px">Authenticate now</button>
+        <div id="authState" class="muted" style="font-size:12px;margin-top:6px"></div>
+
+        <div id="poolWizard" style="display:none;margin-top:10px;border:1px dashed var(--line);border-radius:8px;padding:10px">
+          <div style="font-size:12px;color:var(--muted);margin-bottom:8px">
+            Account pool: click <b>Add account</b> once per test identity. Each click opens a
+            fresh device-code sign-in; use a private/incognito window if your browser is
+            already signed in, so you add a genuinely different account.
+          </div>
+          <button class="btn" style="margin:0 0 8px" id="poolAddBtn">+ Add account</button>
+          <div id="poolAddState" class="muted" style="font-size:12px;margin-bottom:8px"></div>
+          <table style="font-size:12px"><tbody id="poolAccounts"></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOAD SHAPE CARD -->
+    <div class="panel">
+      <h2>Load shape</h2>
+      <label>Load mode</label>
+      <select id="mode">
+        <option value="smoke">Smoke test (handful of sessions)</option>
+        <option value="spike">Event spike (ramp/hold/down)</option>
+        <option value="stepped">Stepped RPM (characterization)</option>
+      </select>
+
+      <div id="smokeCfg" style="display:none">
+        <label>Sessions to run</label><input id="smoke_sessions" type="number" value="3">
+        <p class="muted" style="font-size:11px">Fires this many sessions concurrently, once, then stops — a quick end-to-end check of auth/endpoint/prompts before committing to a real load run.</p>
+      </div>
+
+      <div id="spikeCfg">
+        <div class="row">
+          <div><label>Virtual users</label><input id="virtual_users" type="number" value="50"></div>
+          <div><label>Sessions / VU (0=∞)</label><input id="sessions_per_vu" type="number" value="1"></div>
+        </div>
+        <div class="row">
+          <div><label>Ramp-up (s)</label><input id="rampup_seconds" type="number" value="30"></div>
+          <div><label>Hold (s)</label><input id="hold_seconds" type="number" value="120"></div>
+        </div>
+        <label>Ramp-down (s)</label><input id="rampdown_seconds" type="number" value="15">
+      </div>
+
+      <div id="stepCfg" style="display:none">
+        <label>Steps (RPM, comma-sep)</label><input id="steps" value="20,40,60,80">
+        <div class="row">
+          <div><label>Hold each (s)</label><input id="step_hold_seconds" type="number" value="60"></div>
+          <div><label>Max concurrency</label><input id="max_concurrency" type="number" value="100"></div>
+        </div>
+      </div>
+
+      <div class="row mt">
+        <div><label>Turns / session</label><input id="turns_per_session" type="number" value="4"></div>
+        <div><label>Req timeout (s)</label><input id="request_timeout" type="number" value="120"></div>
+      </div>
+      <div class="row">
+        <div><label>Think min (s)</label><input id="think_min" type="number" value="15"></div>
+        <div><label>Think max (s)</label><input id="think_max" type="number" value="45"></div>
+      </div>
+      <label><input type="checkbox" id="stop_on_throttle" style="width:auto"> Stop on first throttle</label>
+    </div>
+
+    <!-- PROMPTS CARD -->
+    <div class="panel">
+      <h2>Prompts</h2>
+      <div class="label-row">
+        <label style="margin:0">Prompts (one per line)</label>
+        <button type="button" class="icon-btn" id="openPromptSetsBtn" title="Manage reusable question sets">🗂️ Manage sets</button>
+      </div>
+      <textarea id="prompts">What is the standard operating procedure for onboarding?
+Summarize the safety guidelines for lab access.
+What are the steps to file an incident report?</textarea>
+      <label>Run label</label><input id="label" placeholder="e.g. Event spike sim 2k">
+    </div>
+  </div><!-- /config-col -->
+
+  <div class="results-pane">
     <div id="deviceBanner" class="banner" style="display:none"></div>
-    <div id="harnessBanner" class="banner" style="display:none;border-color:var(--err);background:#3a1f1f"></div>
+    <div id="harnessBanner" class="banner" style="display:none;border-color:var(--err);background:var(--err-bg)"></div>
     <div class="kpis">
       <div class="kpi"><div class="v" id="k_total">0</div><div class="l">Requests</div></div>
       <div class="kpi ok"><div class="v" id="k_success">0%</div><div class="l">Success</div></div>
@@ -285,11 +394,18 @@ What are the steps to file an incident report?</textarea>
     </div>
 
     <div class="panel mt"><h2>Recent events</h2><div class="feed" id="feed"></div></div>
-  </div>
-</div>
+  </div><!-- /results-pane -->
+</div><!-- /tab-live -->
 
 <!-- HISTORY TAB -->
 <div style="padding:0 18px;display:none" id="tab-history">
+  <div class="pagehead">
+    <div><h1 style="font-size:17px;margin:0;font-weight:700">Run History</h1></div>
+    <div class="runctl">
+      <button class="btn" style="width:auto;margin:0;padding:6px 12px;font-size:12px"
+        onclick="window.location.href='/api/runs/export.csv'">⬇ Export all (CSV)</button>
+    </div>
+  </div>
   <div class="panel mt">
     <h2>Trend across runs</h2>
     <div class="row">
@@ -302,17 +418,11 @@ What are the steps to file an incident report?</textarea>
     </div>
   </div>
   <div class="panel mt">
-    <h2 style="display:flex;align-items:center;justify-content:space-between">
-      <span>Run History</span>
-      <button class="btn" style="width:auto;margin:0;padding:6px 12px;font-size:12px"
-        onclick="window.location.href='/api/runs/export.csv'">Export all (CSV)</button>
-    </h2>
-    <table class="hist"><thead><tr>
-      <th>When</th><th>Label</th><th>Schema</th><th>Mode</th><th>Harness (inferred)</th><th>Status</th>
-      <th>Target conc.</th><th>Peak conc.</th><th>Sessions</th><th>Duration</th>
-      <th>Reqs</th><th>Success</th><th>Throttled</th><th>p95</th>
-      <th>Tools (live)</th><th>Tools (transcript)</th><th>Credits (MCS)</th><th></th>
-    </tr></thead><tbody id="histBody"></tbody></table>
+    <h2>Run History</h2>
+    <div class="hist-toolbar">
+      <span class="muted" id="histCount" style="font-size:11px"></span>
+    </div>
+    <div class="runlist" id="histList"></div>
     <p class="muted mt">Credit/consumption data aggregates daily and may take hours to surface.
       Use “Refresh credits” on a run to re-query allocation & billing state.</p>
   </div>
@@ -336,6 +446,9 @@ What are the steps to file an incident report?</textarea>
 
 <!-- ACCOUNTS TAB -->
 <div style="padding:0 18px;display:none" id="tab-accounts">
+  <div class="pagehead">
+    <div><h1 style="font-size:17px;margin:0;font-weight:700">Accounts</h1></div>
+  </div>
   <div class="panel mt">
     <h2>Authenticated accounts (pool)</h2>
     <p class="muted" style="font-size:12px">Accounts added via the Account pool wizard
@@ -371,6 +484,9 @@ What are the steps to file an incident report?</textarea>
     </tr></thead><tbody id="acctBody"></tbody></table>
   </div>
 </div>
+
+  </main>
+</div><!-- /shell -->
 
 <!-- PROMPT SETS MODAL -->
 <div class="modal-backdrop" id="promptSetsModal">
@@ -411,6 +527,39 @@ What are the steps to file an incident report?</textarea>
 const $ = id => document.getElementById(id);
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 let polling = null;
+
+// --- Unified "⋯ Manage" popover (Connection/Authentication saved-entity menus,
+// and the per-run action menu in Run History) -- one toggle function shared
+// by all of them, closing any other open menu first. ---
+function toggleManageMenu(id){
+  document.querySelectorAll('.manage-menu').forEach(m => { if(m.id!==id) m.classList.remove('open'); });
+  const el = $(id);
+  if(el) el.classList.toggle('open');
+}
+document.addEventListener('click', e => {
+  if(!e.target.closest('.manage') && !e.target.closest('.row-actions')){
+    document.querySelectorAll('.manage-menu').forEach(m => m.classList.remove('open'));
+  }
+});
+
+// --- Light/dark theme toggle: purely cosmetic, persisted so it survives reloads. ---
+function applyTheme(theme){
+  const btn = $('themeToggleBtn');
+  if(theme === 'light'){
+    document.body.setAttribute('data-theme', 'light');
+    if(btn){ btn.innerHTML = '🌙<div class="rail-label">Dark</div>'; btn.title = 'Switch to dark mode'; }
+  } else {
+    document.body.removeAttribute('data-theme');
+    if(btn){ btn.innerHTML = '☀<div class="rail-label">Light</div>'; btn.title = 'Switch to light mode'; }
+  }
+}
+function toggleTheme(){
+  const next = document.body.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  localStorage.setItem('theme', next);
+  applyTheme(next);
+}
+applyTheme(localStorage.getItem('theme') || 'dark');
+$('themeToggleBtn').onclick = toggleTheme;
 
 // --- shared tenant/client identity: persisted so every tab/reload stays in sync,
 // instead of a fragile one-time copy between tabs at the moment you switch. ---
@@ -1153,7 +1302,8 @@ $('trendRefreshBtn').onclick = loadTrend;
 
 async function loadHistory(){
   const r=await fetch('/api/runs'); const runs=await r.json();
-  $('histBody').innerHTML = runs.map(r=>{
+  $('histCount').textContent = runs.length ? `${runs.length} run${runs.length===1?'':'s'}` : '';
+  $('histList').innerHTML = runs.map((r,idx)=>{
     const sm=r.summary||{}; const cr=r.credits||{};
     const lt=r.live_tools||{}; const te=r.transcript_enrichment||{};
     let credTxt = 'pending (click Refresh credits)';
@@ -1175,8 +1325,7 @@ async function loadHistory(){
     const liveKnow = lt.knowledge_hits!=null?lt.knowledge_hits:'';
     const transTools = te.status==='ok'?te.tool_calls:(te.status?te.status:'—');
     const harness = lt.harness_guess || sm.harness_guess || 'unknown';
-    const harnessCls = harness.includes('rejected') ? 'color:var(--err)'
-      : (harness==='unknown' ? 'color:var(--muted)' : '');
+    const harnessCls = harness.includes('rejected') ? 'harness-warn' : '';
     const harnessTitle = harness.includes('rejected')
       ? 'This agent rejected the D2E endpoint outright (HTTP 200 + canned refusal). '+
         'No real conversation occurred -- treat this run\'s results as invalid.'
@@ -1194,29 +1343,48 @@ async function loadHistory(){
       const secs = Math.round(r.ended - r.created);
       duration = secs<60 ? `${secs}s` : `${Math.floor(secs/60)}m ${secs%60}s`;
     }
-    return `<tr>
-      <td>${r.created_iso||''}</td><td>${r.label||''}</td><td>${r.schema||''}</td>
-      <td>${mode}</td>
-      <td style="${harnessCls}" title="${harnessTitle}">${harness}</td>
-      <td>${r.status||''}</td>
-      <td title="Configured/requested concurrency (meaning depends on load mode)">${targetConc??''}</td>
-      <td title="Highest simultaneous active sessions actually observed during the run">${peakConc}</td>
-      <td title="Distinct conversations/sessions in this run">${sessions}</td>
-      <td>${duration}</td>
-      <td>${sm.total??''}</td>
-      <td>${sm.success_rate!=null?sm.success_rate+'%':''}</td>
-      <td>${sm.throttled??''}</td><td>${sm.p95??''}</td>
-      <td>${liveTools} tools / ${liveKnow} know.</td><td class="credits">${transTools}</td>
-      <td class="credits" title="${credTitle}">${credTxt}</td>
-      <td>
-        <button onclick="refreshCredits('${r.id}', this)">Refresh credits</button>
-        <button onclick="enrichTools('${r.id}', this)">Enrich tools</button>
-        <button onclick="openSessionExplorer('${r.id}','${(r.label||'').replace(/'/g,"\\'")}')">Sessions</button>
-        <button onclick="window.location.href='/api/runs/${r.id}/export.csv'">Export</button>
-      </td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="18" class="muted">No runs yet.</td></tr>';
+    const status = r.status || '—';
+    const statusCls = /complete/i.test(status) ? 'ok' : (/error|fail/i.test(status) ? 'err' : 'neutral');
+    const menuId = 'rm_'+idx, detailId = 'rd_'+idx;
+    const labelEsc = (r.label||'').replace(/'/g,"\\'");
+    return `<div class="run-row">
+      <div class="top">
+        <div class="when">${r.created_iso||''}</div>
+        <div class="rlabel">${r.label||'(untitled run)'}<div class="sub">${r.schema||''} · ${mode}</div></div>
+        <span class="badge ${statusCls}">${status}</span>
+        <div class="metrics-strip">
+          <div class="m"><div class="v">${sm.total??'—'}</div><div class="l">Reqs</div></div>
+          <div class="m"><div class="v">${sm.success_rate!=null?sm.success_rate+'%':'—'}</div><div class="l">Success</div></div>
+          <div class="m"><div class="v">${sm.throttled??'—'}</div><div class="l">Throttled</div></div>
+          <div class="m"><div class="v">${sm.p95!=null?sm.p95+'ms':'—'}</div><div class="l">p95</div></div>
+        </div>
+        <div class="row-actions">
+          <button class="icon-btn square" title="Sessions / transcript"
+            onclick="openSessionExplorer('${r.id}','${labelEsc}')">👥</button>
+          <button class="icon-btn square" onclick="toggleManageMenu('${menuId}')">⋯</button>
+          <div class="manage-menu" id="${menuId}" style="right:0;top:34px;min-width:170px">
+            <div class="mm-row" style="margin-bottom:4px"><button class="btn ghost" style="margin:0;width:100%"
+              onclick="refreshCredits('${r.id}', this)">Refresh credits</button></div>
+            <div class="mm-row" style="margin-bottom:4px"><button class="btn ghost" style="margin:0;width:100%"
+              onclick="enrichTools('${r.id}', this)">Enrich tools</button></div>
+            <div class="mm-row" style="margin-bottom:0"><button class="btn ghost" style="margin:0;width:100%"
+              onclick="window.location.href='/api/runs/${r.id}/export.csv'">Export CSV</button></div>
+          </div>
+          <button class="expand-toggle" onclick="toggleDetail('${detailId}')">▾ Details</button>
+        </div>
+      </div>
+      <div class="run-detail" id="${detailId}">
+        <div><div class="d-l">Target / Peak conc.</div><div class="d-v" title="Configured/requested concurrency (meaning depends on load mode) / Highest simultaneous active sessions actually observed">${targetConc??'—'} / ${peakConc||'—'}</div></div>
+        <div><div class="d-l">Sessions</div><div class="d-v">${sessions||'—'}</div></div>
+        <div><div class="d-l">Duration</div><div class="d-v">${duration}</div></div>
+        <div><div class="d-l">Tools (live / transcript)</div><div class="d-v">${liveTools||0} / ${liveKnow||0} know. · ${transTools}</div></div>
+        <div><div class="d-l">Credits (MCS)</div><div class="d-v" title="${credTitle}">${credTxt}</div></div>
+        <div><div class="d-l">Harness (inferred)</div><div class="d-v ${harnessCls}" title="${harnessTitle}">${harness}</div></div>
+      </div>
+    </div>`;
+  }).join('') || '<p class="muted">No runs yet.</p>';
 }
+function toggleDetail(id){ const el = $(id); if(el) el.classList.toggle('open'); }
 async function refreshCredits(id, btn){
   const original = btn.textContent;
   btn.disabled = true;
