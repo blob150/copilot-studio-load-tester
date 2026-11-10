@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Mockup A — Sidebar nav + separated cards</title>
+<style>
+  :root{
+    --bg:#11151c; --panel:#171c25; --panel2:#1e2531; --ink:#e7ebf3; --muted:#8e97a8;
+    --accent:#38d6c0; --accent-dim:#1f7c71; --ok:#3ecf8e; --warn:#f0b53d; --err:#f26868;
+    --line:#2a3140; --radius:12px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+  .shell{display:grid;grid-template-columns:64px 1fr;min-height:100vh}
+
+  /* --- Sidebar icon nav (replaces pill tabs) --- */
+  nav.rail{background:var(--panel);border-right:1px solid var(--line);display:flex;
+    flex-direction:column;align-items:center;padding:16px 0;gap:6px}
+  nav.rail .brand{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent-dim));
+    margin-bottom:18px;display:flex;align-items:center;justify-content:center;font-weight:800;color:#06201c}
+  .rail-btn{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+    color:var(--muted);cursor:pointer;font-size:19px;position:relative}
+  .rail-btn.active{background:var(--panel2);color:var(--accent)}
+  .rail-btn.active::before{content:"";position:absolute;left:-16px;top:50%;transform:translateY(-50%);
+    width:3px;height:20px;background:var(--accent);border-radius:3px}
+  .rail-btn:hover{color:var(--ink)}
+  .rail-label{font-size:9px;margin-top:2px;letter-spacing:.03em}
+  .rail-spacer{flex:1}
+
+  main{padding:22px 26px;max-width:1500px}
+  header.pagehead{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px}
+  header.pagehead h1{font-size:19px;margin:0;font-weight:700}
+  header.pagehead .sub{color:var(--muted);font-size:12px;margin-top:3px}
+  .runctl{display:flex;align-items:center;gap:12px}
+  .status-chip{font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--line);color:var(--muted)}
+  .btn{background:var(--accent);color:#06201c;border:none;border-radius:8px;padding:10px 18px;
+    font-weight:700;cursor:pointer;font-size:13px}
+  .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+  .btn.sm{padding:6px 12px;font-size:12px;font-weight:600}
+  .btn.danger{background:var(--err);color:#2a0b0b}
+
+  /* --- Card grid: logical groupings as separate panels, not one scroll --- */
+  .grid{display:grid;grid-template-columns:360px 1fr;gap:18px;align-items:start}
+  .col{display:flex;flex-direction:column;gap:16px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:0 0 14px;
+    display:flex;align-items:center;justify-content:space-between;font-weight:700}
+  .card h2 .manage{position:relative}
+  label{display:block;font-size:11.5px;color:var(--muted);margin:10px 0 4px;font-weight:600}
+  label:first-child{margin-top:0}
+  input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--line);
+    color:var(--ink);border-radius:7px;padding:8px 10px;font:inherit}
+  textarea{min-height:76px;resize:vertical}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .muted{color:var(--muted);font-size:11.5px}
+  .derived{background:#14181f;color:var(--muted);border-style:dashed}
+
+  /* --- Unified manage-menu: ONE overflow button instead of Load/Delete/Save/Update rows --- */
+  .manage-btn{width:26px;height:26px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);
+    color:var(--muted);cursor:pointer;font-size:14px;line-height:1}
+  .manage-menu{display:none;position:absolute;right:0;top:30px;background:var(--panel2);
+    border:1px solid var(--line);border-radius:9px;padding:6px;min-width:180px;z-index:20;
+    box-shadow:0 12px 30px rgba(0,0,0,.4)}
+  .manage-menu.open{display:block}
+  .manage-menu button{width:100%;text-align:left;background:none;border:none;color:var(--ink);
+    padding:8px 10px;border-radius:6px;font-size:12.5px;cursor:pointer}
+  .manage-menu button:hover{background:#262e3c}
+  .manage-menu button.danger{color:var(--err)}
+  .manage-menu .divider{height:1px;background:var(--line);margin:4px 2px}
+  .saved-select{display:flex;gap:8px}
+  .saved-select select{flex:1}
+
+  .pill-status{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:5px 10px;
+    border-radius:20px;background:#163227;color:var(--ok);border:1px solid #1d4a37}
+  .pill-status.warn{background:#352709;color:var(--warn);border-color:#52390c}
+  .pill-status .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+
+  .steps-inline{display:flex;gap:6px;margin:4px 0 14px}
+  .steps-inline .seg{flex:1;height:4px;border-radius:3px;background:var(--line)}
+  .steps-inline .seg.done{background:var(--accent)}
+
+  .kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:10px;margin-bottom:16px}
+  .kpi{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+  .kpi .v{font-size:21px;font-weight:800}
+  .kpi .l{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .chart{height:140px;background:var(--panel2);border-radius:8px;display:flex;align-items:center;
+    justify-content:center;color:var(--muted);font-size:12px}
+  .notebar{background:#1a2230;border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+    font-size:12px;color:var(--muted);margin-bottom:16px}
+
+  /* --- Run History redesign --- */
+  .page{display:none}
+  .page.active{display:block}
+  .hist-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .hist-toolbar .filters{display:flex;gap:8px}
+  .hist-toolbar select,.hist-toolbar input{width:auto;min-width:140px}
+  .runlist{display:flex;flex-direction:column;gap:10px}
+  .run-row{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .run-row .top{display:flex;align-items:center;gap:14px}
+  .run-row .when{font-size:11px;color:var(--muted);min-width:120px}
+  .run-row .label{font-weight:700;font-size:13.5px;flex:1}
+  .run-row .label .sub{font-weight:400;color:var(--muted);font-size:11.5px;margin-top:2px}
+  .badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:700}
+  .badge.ok{background:#163227;color:var(--ok)}
+  .badge.err{background:#3a1616;color:var(--err)}
+  .badge.run{background:#1a2b42;color:#6db2f2}
+  .metrics-strip{display:flex;gap:22px;margin-left:8px}
+  .metrics-strip .m{text-align:center}
+  .metrics-strip .m .v{font-weight:700;font-size:14px}
+  .metrics-strip .m .l{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .row-actions{display:flex;align-items:center;gap:6px;position:relative}
+  .icon-btn{width:30px;height:30px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);
+    color:var(--ink);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center}
+  .icon-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .expand-toggle{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;padding:4px}
+  .run-detail{display:none;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);
+    grid-template-columns:repeat(5,1fr);gap:14px;font-size:12px}
+  .run-detail.open{display:grid}
+  .run-detail .d-l{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+  .run-detail .d-v{font-weight:600}
+  .harness-warn{color:var(--err)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="rail">
+    <div class="brand">A</div>
+    <div class="rail-btn active" onclick="showPage('test', this)">▶<div class="rail-label">Test</div></div>
+    <div class="rail-btn" onclick="showPage('history', this)">☰<div class="rail-label">History</div></div>
+    <div class="rail-btn" onclick="showPage('accounts', this)">◎<div class="rail-label">Accts</div></div>
+    <div class="rail-spacer"></div>
+    <div class="rail-btn">⚙<div class="rail-label">More</div></div>
+  </nav>
+
+  <main>
+  <div class="page active" id="page-test">
+    <header class="pagehead">
+      <div>
+        <h1>Live Test</h1>
+        <div class="sub">PFECRM · crc13_earlytest_FRyDFI · A2A protocol</div>
+      </div>
+      <div class="runctl">
+        <span class="status-chip">idle</span>
+        <button class="btn ghost sm">Save preset</button>
+        <button class="btn">▶ Start Test</button>
+      </div>
+    </header>
+
+    <div class="notebar">💡 <b>Mockup A — Sidebar nav + card groups.</b> Tabs moved to a slim left icon rail (frees horizontal
+      space, no longer "spatially awkward" across the top). Config is split into 4 separate cards instead of one long
+      scroll. Every savable thing (preset / auth profile / prompt set) uses the SAME pattern: a dropdown + one "⋯ Manage"
+      button that opens Load/Save as new/Update/Rename/Delete — instead of 3–4 separate buttons per section.</div>
+
+    <div class="grid">
+      <div class="col">
+        <!-- CONNECTION CARD -->
+        <div class="card">
+          <h2>Connection
+            <div class="manage" style="position:relative">
+              <button class="manage-btn" onclick="toggleMenu('m1')">⋯</button>
+              <div class="manage-menu" id="m1">
+                <button>Load config…</button>
+                <button>Save as new</button>
+                <button>Update "SOP GHCP Harness Test"</button>
+                <div class="divider"></div>
+                <button class="danger">Delete</button>
+              </div>
+            </div>
+          </h2>
+          <div class="saved-select">
+            <select><option>SOP GHCP Harness Test</option><option>PFECRM A2A smoke</option></select>
+          </div>
+          <label>Protocol</label>
+          <select><option>A2A (preview; streaming)</option><option>Direct-to-Engine (D2E)</option></select>
+          <label>Agent URL</label>
+          <textarea>https://api.powerplatform.com/copilotstudio-a2a/tenants/…/agents/crc13_earlytest_FRyDFI</textarea>
+          <div class="row2">
+            <div><label>Environment (auto)</label><input class="derived" readonly value="50d5bfc0-…"></div>
+            <div><label>Agent (auto)</label><input class="derived" readonly value="crc13_earlytest_FRyDFI"></div>
+          </div>
+        </div>
+
+        <!-- AUTHENTICATION CARD -->
+        <div class="card">
+          <h2>Authentication
+            <div class="manage" style="position:relative">
+              <button class="manage-btn" onclick="toggleMenu('m2')">⋯</button>
+              <div class="manage-menu" id="m2">
+                <button>Load profile…</button>
+                <button>Save as new</button>
+                <button>Update "PFE CRM Test"</button>
+                <div class="divider"></div>
+                <button class="danger">Delete</button>
+              </div>
+            </div>
+          </h2>
+          <div class="saved-select">
+            <select><option>PFE CRM Test</option><option>DIAx Test Sandbox</option></select>
+          </div>
+          <div class="row2">
+            <div><label>Tenant ID</label><input value="1557f771-…"></div>
+            <div><label>Client ID</label><input value="2e1eeb98-…"></div>
+          </div>
+          <label>Sign-in method</label>
+          <select><option>Account pool (multi-account)</option><option>Static bearer token</option></select>
+          <div style="margin-top:12px;display:flex;align-items:center;justify-content:space-between">
+            <span class="pill-status"><span class="dot"></span> 3 accounts ready</span>
+            <a href="#" style="color:var(--accent);font-size:12px;text-decoration:none">Manage on Accounts →</a>
+          </div>
+        </div>
+      </div>
+
+      <div class="col">
+        <!-- LOAD SHAPE CARD -->
+        <div class="card">
+          <h2>Load shape</h2>
+          <label>Mode</label>
+          <select><option>Smoke test</option><option>Event spike</option><option>Stepped RPM</option></select>
+          <div class="row2">
+            <div><label>Sessions to run</label><input value="3"></div>
+            <div><label>Turns / session</label><input value="4"></div>
+          </div>
+          <div class="row2">
+            <div><label>Think min (s)</label><input value="15"></div>
+            <div><label>Think max (s)</label><input value="45"></div>
+          </div>
+          <label><input type="checkbox" style="width:auto"> Stop on first throttle</label>
+        </div>
+
+        <!-- PROMPTS CARD -->
+        <div class="card">
+          <h2>Prompts
+            <div class="manage" style="position:relative">
+              <button class="manage-btn" onclick="toggleMenu('m3')">⋯</button>
+              <div class="manage-menu" id="m3">
+                <button>Load question set…</button>
+                <button>Save as new</button>
+                <button>Update "Weather smoke test"</button>
+                <div class="divider"></div>
+                <button class="danger">Delete</button>
+              </div>
+            </div>
+          </h2>
+          <textarea style="min-height:100px">What is the weather in NY today?
+Will it rain in Miami tomorrow?
+Are there any active hurricanes?</textarea>
+          <label>Run label</label>
+          <input placeholder="e.g. Event spike sim 2k">
+        </div>
+
+        <!-- LIVE STATS CARD (always visible, not buried below a scroll) -->
+        <div class="card">
+          <h2>Live results</h2>
+          <div class="kpis">
+            <div class="kpi"><div class="v">0</div><div class="l">Requests</div></div>
+            <div class="kpi"><div class="v">0%</div><div class="l">Success</div></div>
+            <div class="kpi"><div class="v">0</div><div class="l">Errors</div></div>
+            <div class="kpi"><div class="v">0</div><div class="l">Active</div></div>
+            <div class="kpi"><div class="v">0</div><div class="l">p50 ms</div></div>
+            <div class="kpi"><div class="v">0</div><div class="l">p95 ms</div></div>
+          </div>
+          <div class="chart">Throughput chart renders here</div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /page-test -->
+
+  <div class="page" id="page-history">
+    <header class="pagehead">
+      <div>
+        <h1>Run History</h1>
+        <div class="sub">12 runs · filtered to crc13_earlytest_FRyDFI</div>
+      </div>
+      <div class="runctl">
+        <button class="btn ghost sm">⬇ Export all (CSV)</button>
+      </div>
+    </header>
+
+    <div class="notebar">💡 The old table crammed 17 columns + 4 stacked buttons into one row. Redesigned as a compact
+      summary row (when / label / status / the 4 numbers people actually scan) with a <b>▾ Details</b> toggle for the rest
+      (target/peak conc., sessions, throttled, tool counts, credits, harness) — and the 4 buttons collapsed into one
+      row-actions cluster: a primary <b>Sessions</b> icon (most-used action) plus a single "⋯" menu for
+      Enrich tools / Refresh credits / Export.</div>
+
+    <div class="hist-toolbar">
+      <div class="filters">
+        <select><option>All statuses</option><option>Completed</option><option>Error</option></select>
+        <select><option>All modes</option><option>Smoke</option><option>Stepped</option><option>Spike</option></select>
+        <input placeholder="Filter by label…">
+      </div>
+      <span class="muted">Showing 3 of 12</span>
+    </div>
+
+    <div class="runlist">
+      <div class="run-row">
+        <div class="top">
+          <div class="when">Nov 9, 3:42 PM</div>
+          <div class="label">Event spike sim 2k<div class="sub">new_SOPStandardAgent · stepped</div></div>
+          <span class="badge ok">completed</span>
+          <div class="metrics-strip">
+            <div class="m"><div class="v">612</div><div class="l">Reqs</div></div>
+            <div class="m"><div class="v">98%</div><div class="l">Success</div></div>
+            <div class="m"><div class="v">2</div><div class="l">Throttled</div></div>
+            <div class="m"><div class="v">1340ms</div><div class="l">p95</div></div>
+          </div>
+          <div class="row-actions">
+            <button class="icon-btn" title="Sessions / transcript">👥</button>
+            <button class="icon-btn" onclick="toggleMenu('rm1')">⋯</button>
+            <div class="manage-menu" id="rm1" style="right:0;top:34px">
+              <button>Enrich tools</button>
+              <button>Refresh credits</button>
+              <button>Export CSV</button>
+            </div>
+            <button class="expand-toggle" onclick="toggleDetail('rd1')">▾ Details</button>
+          </div>
+        </div>
+        <div class="run-detail" id="rd1">
+          <div><div class="d-l">Target / Peak conc.</div><div class="d-v">60 / 58</div></div>
+          <div><div class="d-l">Sessions</div><div class="d-v">34</div></div>
+          <div><div class="d-l">Duration</div><div class="d-v">4m 12s</div></div>
+          <div><div class="d-l">Tools (live / transcript)</div><div class="d-v">41 / 41</div></div>
+          <div><div class="d-l">Credits (MCS)</div><div class="d-v">612 / 1000 ✓</div></div>
+          <div><div class="d-l">Harness (inferred)</div><div class="d-v">Standard (assumed)</div></div>
+        </div>
+      </div>
+
+      <div class="run-row">
+        <div class="top">
+          <div class="when">Nov 9, 2:15 PM</div>
+          <div class="label">A2A smoke check<div class="sub">crc13_earlytest_FRyDFI · smoke</div></div>
+          <span class="badge ok">completed</span>
+          <div class="metrics-strip">
+            <div class="m"><div class="v">6</div><div class="l">Reqs</div></div>
+            <div class="m"><div class="v">100%</div><div class="l">Success</div></div>
+            <div class="m"><div class="v">0</div><div class="l">Throttled</div></div>
+            <div class="m"><div class="v">20139ms</div><div class="l">p95</div></div>
+          </div>
+          <div class="row-actions">
+            <button class="icon-btn" title="Sessions / transcript">👥</button>
+            <button class="icon-btn" onclick="toggleMenu('rm2')">⋯</button>
+            <div class="manage-menu" id="rm2" style="right:0;top:34px">
+              <button>Enrich tools</button>
+              <button>Refresh credits</button>
+              <button>Export CSV</button>
+            </div>
+            <button class="expand-toggle" onclick="toggleDetail('rd2')">▾ Details</button>
+          </div>
+        </div>
+        <div class="run-detail" id="rd2">
+          <div><div class="d-l">Target / Peak conc.</div><div class="d-v">1 / 1</div></div>
+          <div><div class="d-l">Sessions</div><div class="d-v">1</div></div>
+          <div><div class="d-l">Duration</div><div class="d-v">31s</div></div>
+          <div><div class="d-l">Tools (live / transcript)</div><div class="d-v">1 / —</div></div>
+          <div><div class="d-l">Credits (MCS)</div><div class="d-v">pending</div></div>
+          <div><div class="d-l">Harness (inferred)</div><div class="d-v">Standard (assumed)</div></div>
+        </div>
+      </div>
+
+      <div class="run-row">
+        <div class="top">
+          <div class="when">Nov 8, 11:03 AM</div>
+          <div class="label">GHCP harness probe<div class="sub">cr8f9_sopghcp_mCP7gy · smoke</div></div>
+          <span class="badge err">harness rejected</span>
+          <div class="metrics-strip">
+            <div class="m"><div class="v">4</div><div class="l">Reqs</div></div>
+            <div class="m"><div class="v">0%</div><div class="l">Success</div></div>
+            <div class="m"><div class="v">4</div><div class="l">Errors</div></div>
+            <div class="m"><div class="v">—</div><div class="l">p95</div></div>
+          </div>
+          <div class="row-actions">
+            <button class="icon-btn" title="Sessions / transcript">👥</button>
+            <button class="icon-btn" onclick="toggleMenu('rm3')">⋯</button>
+            <div class="manage-menu" id="rm3" style="right:0;top:34px">
+              <button>Enrich tools</button>
+              <button>Refresh credits</button>
+              <button>Export CSV</button>
+            </div>
+            <button class="expand-toggle" onclick="toggleDetail('rd3')">▾ Details</button>
+          </div>
+        </div>
+        <div class="run-detail" id="rd3">
+          <div><div class="d-l">Target / Peak conc.</div><div class="d-v">2 / 2</div></div>
+          <div><div class="d-l">Sessions</div><div class="d-v">2</div></div>
+          <div><div class="d-l">Duration</div><div class="d-v">8s</div></div>
+          <div><div class="d-l">Tools (live / transcript)</div><div class="d-v">0 / —</div></div>
+          <div><div class="d-l">Credits (MCS)</div><div class="d-v">—</div></div>
+          <div><div class="d-l">Harness (inferred)</div><div class="d-v harness-warn" title="Agent rejected D2E outright — results invalid">GitHub Copilot harness (rejected D2E)</div></div>
+        </div>
+      </div>
+    </div>
+  </div><!-- /page-history -->
+
+  <div class="page" id="page-accounts">
+    <header class="pagehead">
+      <div><h1>Accounts</h1><div class="sub">Not mocked in detail — carries the same card + manage-menu language</div></div>
+    </header>
+    <div class="notebar">This mockup focuses on Live Test + Run History per the request. The Accounts tab would reuse
+      the same tenant-filter + per-row "Use" checkbox pattern already shipped, just restyled to match this card language.</div>
+  </div><!-- /page-accounts -->
+
+  </main>
+</div>
+<script>
+function toggleMenu(id){
+  document.querySelectorAll('.manage-menu').forEach(m => { if(m.id!==id) m.classList.remove('open'); });
+  document.getElementById(id).classList.toggle('open');
+}
+document.addEventListener('click', e=>{
+  if(!e.target.closest('.manage') && !e.target.closest('.row-actions')) document.querySelectorAll('.manage-menu').forEach(m=>m.classList.remove('open'));
+});
+function toggleDetail(id){ document.getElementById(id).classList.toggle('open'); }
+function showPage(name, el){
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.getElementById('page-'+name).classList.add('active');
+  document.querySelectorAll('.rail-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+}
+</script>
+</body>
+</html>
