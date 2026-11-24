@@ -3,9 +3,9 @@
 A local tool for load-testing Microsoft Copilot Studio agents via the
 **Direct-to-Engine (D2E)** API — the same endpoint used by the Microsoft 365 Agents
 SDK's `CopilotStudioClient`. It includes a web dashboard for configuring runs,
-watching them live, and reviewing history/trends, plus a growing set of exploratory
-scripts investigating newer external-invocation channels (A2A, MCP) for agents built
-on the **GitHub Copilot (GHCP) harness** — see [GHCP harness support](#ghcp-harness-support-read-this-first)
+watching them live, and reviewing history/trends, plus first-class support for the
+newer external-invocation channels (A2A, MCP) needed to reach agents built on the
+**GitHub Copilot (GHCP) harness** — see [GHCP harness support](#ghcp-harness-support-read-this-first)
 below before testing a GHCP-harness agent.
 
 Built to answer three practical questions for a real deployment:
@@ -34,17 +34,19 @@ same invocation surfaces:
 |---|---|---|
 | D2E endpoint (`/copilotstudio/dataverse-backed/.../conversations`) | ✅ Works | ❌ **Hard rejection** — HTTP 200 + canned message *"This action doesn't support agents built with the GitHub Copilot harness"*, then `turn.complete`. No real conversation happens. |
 | Direct Line / Power Automate "Microsoft Copilot Studio" connector | ✅ Works | ❌ Also rejected (Microsoft-acknowledged, unresolved as of this writing — see `microsoft/Agents-for-net#1015`) |
-| A2A client channel (`copilotstudio-a2a`, preview) | N/A | ⚠️ Auth works; backend currently returns a bare `404 ResourceNotFound` for every call in our testing (tenant-dependent rollout, not a client-side problem — see `probe_a2a*.py`) |
-| MCP client channel (`copilotstudio-mcp`, preview) | N/A | ⚠️ Auth works; backend currently returns a clean JSON-RPC error *"The MCP endpoint is not enabled for this environment"* (see `probe_mcp.py`) |
+| A2A client channel (`copilotstudio-a2a`, preview) | N/A | ⚠️ Auth works; backend currently returns a bare `404 ResourceNotFound` for every call in our testing (tenant-dependent rollout, not a client-side problem) |
+| MCP client channel (`copilotstudio-mcp`, preview) | N/A | ⚠️ Auth works; backend currently returns a clean JSON-RPC error *"The MCP endpoint is not enabled for this environment"* |
 
 **This tool auto-detects the D2E rejection** (`harness_unsupported` on each turn,
 surfaced as a `harness_guess` per run and a red warning banner mid-test) so you never
 mistake a 100%-rejected run for a successful one — but if your target agent is GHCP-
 harness, **the only confirmed-working way to generate real load against it today is
 the Agent node inside a Copilot Studio "workflow"**, driven from inside Studio itself
-(no external REST contract exists for that path). The `probe_a2a*.py` / `probe_mcp.py`
-scripts in this repo are kept as ready-to-rerun checks for when Microsoft finishes
-rolling out the A2A/MCP channels — see [A2A / MCP exploration scripts](#a2a--mcp-exploration-scripts-experimental).
+(no external REST contract exists for that path). `a2a_client.py` remains in this
+repo as the real, working A2A client (once Microsoft finishes rolling out the A2A
+channel for a given tenant/environment) — the one-off exploration scripts used to
+validate it against a real tenant during development have since been removed from
+the repo (they hardcoded real tenant/account identifiers).
 
 ---
 
@@ -80,10 +82,11 @@ viewing and historical analysis.
 | `run_store.py` | SQLite-backed persistence: runs, per-request events, saved config presets, trend queries, session/conversation drill-down queries |
 | `credits.py` | Queries `pac licensing` for real Copilot Credit allocation/consumption (not just estimates) |
 | `transcripts.py` | Historical enrichment: reads Dataverse conversation transcripts to get authoritative tool/connector call counts after the fact |
+| `app_insights.py` | Historical enrichment: queries Application Insights' GenAI spans for the same purpose, usually available much faster than transcripts — see [Application Insights enrichment](#application-insights-enrichment-optional) |
+| `connector_discovery.py` / `preflight.py` | Pre-run checks: account token liveness, and auto-discovery + auto-resolution of per-identity connector consent (see [Reading the results](#reading-the-results) and inline docs in `preflight.py`) |
 | `app.py` + `templates/index.html` | Flask web UI: live dashboard, run history (with CSV export), session explorer, account pool manager |
-| `probe_a2a.py`, `probe_a2a_authcode.py`, `probe_a2a_cli.py`, `probe_a2a_sweep.py` | Standalone scripts testing the new **A2A client channel** for GHCP-harness agents (device-code, real auth-code/PKCE flow, an unauthenticated/first-party-client variant, and a protocol-variation sweep, respectively) |
-| `probe_mcp.py` | Standalone script testing the new **MCP client channel** for GHCP-harness agents |
-| `start_app.ps1` / `start_app.bat` / `stop_app.bat` | Desktop launcher — see [Launching the app](#launching-the-app) |
+| `start_app.ps1` / `start_app.bat` / `stop_app.bat` | Desktop launcher for source installs — see [Launching the app](#launching-the-app-when-running-from-source) |
+| `installer/` | Packaged-exe installer for sharing with non-developers — see [Install & run](#install--run) |
 
 ### Why this can't be a Power Platform canvas app
 
@@ -192,6 +195,32 @@ responsible for not committing it to `config.json`.
 
 ### Install & run
 
+**Option A — packaged installer (recommended for sharing with others who don't
+have Python/a dev environment):**
+
+1. Build the package (one-time, on a dev machine): `pyinstaller --noconfirm
+   --onedir --noconsole --name "CopilotStudioLoadTester" --add-data
+   "templates;templates" --collect-all msal app.py`, then copy the resulting
+   `dist/CopilotStudioLoadTester/` folder into `installer/app/`.
+2. Share the whole `installer/` folder (or zip it) with whoever needs it.
+3. They run `installer/Install.bat` — no admin rights needed. It copies the app to
+   `%LOCALAPPDATA%\Programs\CopilotStudioLoadTester`, creates Start Menu/Desktop
+   shortcuts, and launches it. First launch auto-opens the **Setup Wizard** (prereq
+   check, Entra app-registration guidance, sign-in) since no Auth Profile exists yet.
+4. Uninstall later via `installer/app/uninstall.ps1` inside the installed folder
+   (add `-RemoveData` to also delete saved connections/run history).
+
+Used `--onedir`, not `--onefile`: some environments' Application Control policy
+blocks executing a DLL extracted to `%TEMP%`, which `--onefile` requires on every
+launch — `--onedir` keeps everything next to the exe instead. Persistent data (the
+run-history DB, token caches, saved config) lives in
+`%LOCALAPPDATA%\CopilotStudioLoadTester\` when running as a packaged exe (detected
+via `sys.frozen`, see `paths.py`), vs. next to the source files when run directly
+with `python app.py` — reinstalling/upgrading the packaged app never touches that
+data.
+
+**Option B — run from source (for development):**
+
 ```powershell
 pip install -r requirements.txt
 python app.py
@@ -199,7 +228,7 @@ python app.py
 
 Open **http://127.0.0.1:5000**.
 
-### Launching the app
+### Launching the app (when running from source)
 
 Once set up, you don't need to run `python app.py` by hand every time:
 
@@ -240,7 +269,7 @@ parameter the engine actually reads.
 
 | Parameter | Meaning |
 |---|---|
-| `protocol` | `d2e` (default, Direct-to-Engine/Bot Framework activity protocol) or `a2a` (preview A2A streaming protocol — see "A2A / MCP exploration scripts" below for how this was discovered/validated). Determines which client (`D2EClient`/`A2AClient`) the engine builds and which delegated scope auth resolves to. |
+| `protocol` | `d2e` (default, Direct-to-Engine/Bot Framework activity protocol) or `a2a` (preview A2A streaming protocol — see [A2A streaming protocol (preview)](#a2a-streaming-protocol-preview) below for how this was discovered/validated). Determines which client (`D2EClient`/`A2AClient`) the engine builds and which delegated scope auth resolves to. |
 | `url` | The full D2E conversation URL pasted into the form; parsed client-side to auto-fill `host`/`schema` (not sent to the engine directly). Only used when `protocol=d2e`. |
 | `host` | The D2E endpoint hostname, e.g. `{env}.{region}.environment.api.powerplatform.com`. |
 | `schema` | The agent's Dataverse bot schema name (the `{schemaName}` segment of the D2E URL). |
@@ -362,6 +391,11 @@ banner appears mid-run if any response is detected as a GHCP-harness rejection.
 - **Tools (live)** — best-effort count parsed from the SSE stream in real time.
 - **Tools (transcript)** — authoritative count from Dataverse conversation
   transcripts, fetched on demand via **Enrich tools** (requires `org_url`).
+- **App Insights (GenAI spans)** — authoritative tool/connector call counts from
+  Application Insights' OpenTelemetry GenAI spans, fetched on demand via **Check
+  App Insights** (usually available within ~1-2 minutes of a conversation ending —
+  much faster than the Dataverse transcript sync above). Requires a one-time
+  connection setup — see **Application Insights enrichment (optional)** below.
 - **Credits (MCS)** — real consumed/allocated Copilot Credit numbers from
   `pac licensing`, fetched on demand via **Refresh credits**. Consumption data
   aggregates on a periodic (roughly daily) snapshot, not in real time — the
@@ -381,6 +415,54 @@ banner appears mid-run if any response is detected as a GHCP-harness rejection.
 Historical data older than a given feature (e.g. Peak conc. before it was added)
 simply shows blank for that field — it isn't retroactively computable, but all new
 runs populate it going forward.
+
+## Application Insights enrichment (optional)
+
+A third, optional historical enrichment source alongside Dataverse transcripts and
+`pac` credit lookups — queries the GenAI tool-call spans Copilot Studio writes to
+Application Insights, usually available within ~1-2 minutes of a conversation
+ending (far faster than the Dataverse transcript sync, which can lag ~30-35
+minutes). Entirely optional: the core load-testing feature works fully without it.
+
+**Authentication — important, and easy to miss:** this feature has no login flow of
+its own inside the app. It shells out to the **Azure CLI (`az`)** and reuses
+whatever account `az` is already signed into on this machine — there is no secret,
+token, or in-app credential to configure. If a brand-new user skips this, nothing
+in the app proactively tells them — the Setup Wizard's prereq check will show
+"⚠️ Installed, but not signed in" for Azure CLI, but that's the only hint.
+
+**One-time setup, per machine:**
+1. Install the Azure CLI if it isn't already present (`winget install
+   Microsoft.AzureCLI`, or https://aka.ms/installazurecliwindows).
+2. Open any terminal and run:
+   ```powershell
+   az login
+   ```
+   This opens a browser sign-in prompt once; after that, `az` caches the session
+   and every subsequent `az`-backed feature in this tool (App Insights enrichment)
+   just works without asking again, until that cached session expires.
+3. In the app: **Settings → Application Insights** → paste the resource's Azure
+   Portal URL (its "Logs" blade URL, or any URL containing
+   `.../resourceGroups/<rg>/providers/microsoft.insights/components/<name>`) →
+   **Connect**. This immediately validates against the real resource and reports
+   either "✓ connected" or a specific, actionable error (e.g. "Make sure you're
+   logged in (`az login`)...") — don't wait until a real run to find out whether
+   this is working.
+4. Per run, afterward: **Run History → Check App Insights** reuses the saved
+   connection automatically — no need to reconnect per run.
+
+**Notes / limitations:**
+- `az`'s active subscription is a single machine-wide setting; this tool switches
+  it to the resource's own subscription automatically before each query, but it's
+  still riding on whichever account `az` is currently logged in as — not a
+  per-account or per-run identity, and not related to the actual load-test traffic
+  authentication at all.
+- Only works for a **workspace-based** ("Redfield"/IngestionMode=LogAnalytics)
+  Application Insights resource — a classic (non-workspace-based) resource isn't
+  supported by this query path and will report a clear error saying so.
+- If the signed-in `az` account doesn't have read access to the resource's
+  Log Analytics workspace (e.g. wrong tenant, insufficient RBAC), both the Connect
+  step and the per-run check report that explicitly rather than failing silently.
 
 ## Known limitations / things to verify per-tenant
 
@@ -432,14 +514,14 @@ like `SendStreamingMessage` — **not** the generic A2A spec's lowercase
 (soft failures like an empty-text completion, and the fact that a garbage
 `contextId` is silently accepted as a new conversation rather than erroring).
 
-| Script | What it tests |
-|---|---|
-| `probe_a2a.py` / `probe_a2a_authcode.py` / `probe_a2a_cli.py` / `probe_a2a_sweep.py` | Earlier exploration against our own (then-unprovisioned) tenant — kept for reference; superseded by the scripts below once a working environment was found. |
-| `probe_mcp.py` | MCP channel exploration (`initialize`/`tools/list`/`tools/call`) against our own tenant. |
-| `probe_a2a_pfecrm.py` / `probe_a2a_pfecrm_sdk.py` | First successful end-to-end A2A conversation (confidential-client flow, then re-validated via Microsoft's official `a2a-sdk`) — this is where the real wire format above was discovered. |
-| `probe_a2a_errors_v2.py` | The error-scenario matrix referenced in `a2a_client.py`'s docstring (invalid token, malformed params, empty text, garbage contextId, etc.). |
-| `probe_mcp_pfecrm.py` | Full working MCP conversation + error scenarios, for comparing A2A vs. MCP error ergonomics (A2A recommended as primary — see `plan.md`/commit history for the full write-up). |
-| `probe_pfecrm_public_client.py` | Validates the proper no-secret public-client app registration pattern (see "Creating the app registration" above) actually works for A2A/MCP, not just D2E. |
+This wire format and error-handling matrix were discovered through iterative,
+one-off exploration scripts against a real tenant during development (device-code
+and auth-code/PKCE flow variants, a protocol-variation sweep, MCP channel
+exploration, and a dedicated error-scenario matrix). Those scripts have since been
+removed from the repo — they hardcoded real tenant/account identifiers not meant to
+be committed — but everything they discovered is preserved in `a2a_client.py`'s own
+docstring/comments and this README, which is the authoritative reference going
+forward.
 
 `ms_sample/` contains Microsoft's official reference client code
 (`a2a_client.py`, `mcp_client.py`, etc., from `microsoft/CopilotStudioSamples`)
@@ -455,19 +537,23 @@ stats.py                 Live stats aggregation (incl. peak concurrency)
 d2e_client.py             D2E HTTP client (SSE/JSON parsing, tool + harness-rejection detection)
 a2a_client.py             A2A HTTP client (SSE streaming, same TurnResult contract as D2E)
 token_provider.py         Auth providers (static / device-code / ROPC / account pool / confidential auth-code)
-run_store.py              SQLite persistence (runs, events, presets, trends, sessions)
+run_store.py              SQLite persistence (runs, events, presets, trends, sessions, connector consent cache)
 credits.py                pac licensing credit/consumption queries
 transcripts.py            Dataverse transcript enrichment (historical tool counts)
+app_insights.py           Application Insights (GenAI spans) enrichment -- see setup section above
+connector_discovery.py    Discovers an agent's real connector dependencies from Dataverse metadata (botcomponents)
+preflight.py              Pre-run checks: account token liveness + connector-consent auto-resolution
+paths.py                  Resolves where persistent data lives -- source-relative in dev mode, %LOCALAPPDATA% when packaged
+setup_wizard.py           First-time Setup Wizard backend (prereq checks, Entra app-registration guide)
 templates/index.html      Web dashboard
 requirements.txt
 config.example.json       Example config (D2E)
 config.a2a.example.json   Example config (A2A)
 smoke_test.py / ramp.py  Original CLI tools (pre-UI); still usable standalone
-probe_a2a*.py             A2A channel exploration/validation (see above)
-probe_mcp*.py             MCP channel exploration/validation (see above)
 ms_sample/                Microsoft's official A2A/MCP reference client code
-start_app.ps1/.bat        Desktop launcher (background start + auto-open browser)
+start_app.ps1/.bat        Desktop launcher for source installs (background start + auto-open browser)
 stop_app.bat              Stops the background server
+installer/                Packaged-exe installer: Install.bat, install.ps1, README.md (see Install & run above)
 ```
 
 ## License

@@ -26,8 +26,8 @@
     transition:background .15s ease,color .15s ease}
 
   /* --- Sidebar icon rail (replaces top pill tabs): viewport-locked, never scrolls away --- */
-  html,body{height:100%}
-  .shell{display:grid;grid-template-columns:64px 1fr;height:100vh;overflow:hidden}
+  html,body{width:100%;height:100%;margin:0;padding:0;overflow:hidden}
+  .shell{display:grid;grid-template-columns:64px 1fr;width:100%;height:100vh;overflow:hidden}
   nav.rail{background:var(--panel);border-right:1px solid var(--line);display:flex;
     flex-direction:column;align-items:center;padding:16px 0;gap:6px;height:100%;overflow-y:auto}
   nav.rail .brand{width:34px;height:34px;border-radius:9px;
@@ -63,12 +63,12 @@
   .tag{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:3px 10px;border-radius:20px}
   .runctl{display:flex;align-items:center;gap:10px}
 
-  #tab-live,#tab-history,#tab-accounts{height:100%;display:flex;flex-direction:column;overflow:hidden}
+  #tab-live,#tab-history,#tab-accounts,#tab-settings{height:100%;display:flex;flex-direction:column;overflow:hidden}
   .tab-body{flex:1;min-height:0;overflow-y:auto;padding:0 26px 18px;box-sizing:border-box}
 
   .wrap{display:grid;grid-template-columns:1fr 3fr;gap:18px;flex:1;min-height:0;padding:0 26px 18px}
-  .config-col{display:flex;flex-direction:column;gap:16px;overflow-y:auto;height:100%;padding-right:4px}
-  .results-pane{overflow-y:auto;height:100%;padding-right:4px}
+  .config-col{display:flex;flex-direction:column;gap:16px;overflow-y:auto;height:100%;padding-right:4px;padding-bottom:10px}
+  .results-pane{overflow-y:auto;height:100%;padding-right:4px;padding-bottom:10px}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;
     box-shadow:var(--card-shadow)}
   .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
@@ -112,8 +112,6 @@
   .devcode-copy{width:auto;margin:0;padding:8px 14px;font-size:13px;flex-shrink:0}
   .devcode-copy.copied{background:var(--ok)}
   .muted{color:var(--muted)} .mt{margin-top:16px}
-  .hist td{font-size:12px}
-  .credits{font-size:11px}
   .icon-btn{width:auto;display:inline-flex;align-items:center;gap:6px;margin:0;padding:4px 10px;
     font-size:12px;font-weight:600;background:var(--panel2);color:var(--ink);
     border:1px solid var(--line);border-radius:6px;cursor:pointer}
@@ -149,15 +147,8 @@
   .manage-menu button.ghost{background:var(--panel);color:var(--ink);border:1px solid var(--line)}
   .manage-menu .mm-hint{font-size:10.5px;color:var(--muted);margin:0 0 8px}
 
-  /* --- Run History card-row redesign (replaces the 17-column table) --- */
-  .hist-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
-  .runlist{display:flex;flex-direction:column;gap:10px}
-  .run-row{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;
-    box-shadow:var(--card-shadow)}
-  .run-row .top{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-  .run-row .when{font-size:11px;color:var(--muted);min-width:120px}
-  .run-row .rlabel{font-weight:700;font-size:13.5px;flex:1;min-width:160px}
-  .run-row .rlabel .sub{font-weight:400;color:var(--muted);font-size:11.5px;margin-top:2px}
+  /* --- Run History: badges + metrics-strip (shared by run-card list items and
+       the detail-pane header below) --- */
   .badge{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:700;white-space:nowrap}
   .badge.ok{background:var(--ok-bg);color:var(--ok)}
   .badge.err{background:var(--err-bg);color:var(--err)}
@@ -166,16 +157,116 @@
   .metrics-strip .m{text-align:center}
   .metrics-strip .m .v{font-weight:700;font-size:13.5px}
   .metrics-strip .m .l{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
-  .row-actions{display:flex;align-items:center;gap:6px;position:relative}
-  .icon-btn.square{width:30px;height:30px;padding:0;justify-content:center}
-  .expand-toggle{background:none;border:none;color:var(--muted);cursor:pointer;font-size:12.5px;padding:4px}
-  .expand-toggle:hover{color:var(--accent)}
-  .run-detail{display:none;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line);
-    grid-template-columns:repeat(5,1fr);gap:14px;font-size:12px}
-  .run-detail.open{display:grid}
-  .run-detail .d-l{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
-  .run-detail .d-v{font-weight:600}
   .harness-warn{color:var(--err)}
+
+  /* --- History tab: master/detail layout (narrow run list left, big detail
+       pane right) -- replaces the old full-width stacked .run-row cards.
+       Fills the ENTIRE remaining tab-body height so there is exactly one
+       scrollbar per column (run-list, detail-pane) and no outer page-level
+       scrollbar stacking on top of them. --- */
+  #tab-history .tab-body{overflow:hidden;display:flex;flex-direction:column}
+  .hist-shell{display:flex;gap:16px;flex:1;min-height:0}
+  .runlist-panel{width:300px;flex:0 0 300px;background:var(--panel);border:1px solid var(--line);
+    border-radius:10px;display:flex;flex-direction:column;overflow:hidden}
+  .runlist-head{padding:14px 14px 10px;border-bottom:1px solid var(--line)}
+  .runlist-head h2{margin:0;font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .runlist-head .count{color:var(--ink);font-weight:700;text-transform:none;letter-spacing:0}
+  .runlist-filter{padding:10px 14px;border-bottom:1px solid var(--line)}
+  .runlist-filter input{font-size:12px}
+  .runlist-items{flex:1;overflow-y:auto;padding-bottom:8px}
+  .run-card{padding:11px 14px;border-bottom:1px solid var(--line);cursor:pointer;border-left:3px solid transparent}
+  .run-card:hover{background:var(--hover-bg)}
+  .run-card.selected{background:var(--panel2);border-left-color:var(--accent)}
+  .run-card .rc-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+  .run-card .rc-when{font-size:10.5px;color:var(--muted)}
+  .run-card .rc-label{font-weight:600;font-size:13px;margin-top:3px}
+  .run-card .rc-sub{color:var(--muted);font-size:11px;margin-top:2px}
+  .run-card .rc-metrics{display:flex;gap:10px;margin-top:6px;font-size:10.5px;color:var(--muted);flex-wrap:wrap}
+  .run-card .rc-metrics b{color:var(--ink)}
+  .rc-dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-right:4px}
+  .rc-dot.ok{background:var(--ok)} .rc-dot.warn{background:var(--warn)} .rc-dot.err{background:var(--err)}
+
+  .detail-panel{flex:1;min-width:0;overflow-y:auto;display:flex;flex-direction:column;gap:16px;padding-bottom:10px}
+  .detail-panel .panel{padding:20px 24px}
+  .dh-top{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:4px}
+  .dh-title{font-size:16px;font-weight:700}
+  .dh-sub{color:var(--muted);font-size:12.5px;margin-top:2px}
+  .detail-panel .metrics-strip{gap:22px;margin:14px 0 16px;padding-bottom:16px;border-bottom:1px solid var(--line)}
+  .detail-panel .metrics-strip .m .v{font-size:18px}
+  .hist-kpis{grid-template-columns:repeat(4,1fr);margin:14px 0 20px}
+  .hist-kpis .kpi{padding:10px 12px}
+  .hist-kpis .kpi .v{font-size:19px}
+  .hist-kpis .kpi .l{font-size:10px;white-space:normal;line-height:1.25}
+
+  .section-title{display:flex;align-items:center;gap:8px;margin:22px 0 10px;font-size:12.5px;
+    font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+  .section-title .count{background:var(--panel2);color:var(--ink);border-radius:10px;padding:1px 8px;font-size:11px}
+  .section-title .hint{font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:11.5px}
+
+  /* --- Load Impact combo charts --- */
+  .chart-row{display:grid;grid-template-columns:1.4fr 1fr;gap:16px}
+  .chart-card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:14px}
+  .chart-card .ct{font-size:12.5px;font-weight:600;margin-bottom:2px}
+  .chart-card .cs{font-size:11px;color:var(--muted);margin-bottom:10px}
+  .chart-card canvas{height:170px;background:var(--bg);cursor:crosshair}
+  .legend{display:flex;gap:14px;font-size:11px;color:var(--muted);margin-top:8px;flex-wrap:wrap}
+  .legend span{display:inline-flex;align-items:center;gap:5px}
+  .legend span[title]{cursor:help;border-bottom:1px dotted var(--muted)}
+  .lg-swatch{width:10px;height:3px;border-radius:2px;display:inline-block}
+  .insight-callout{background:var(--warn-bg);border:1px solid var(--warn-border);color:var(--warn);
+    border-radius:8px;padding:10px 14px;font-size:12.5px;margin-top:12px}
+  .insight-callout.ok{background:var(--ok-bg);border-color:var(--ok-border);color:var(--ok)}
+  .insight-callout b{color:inherit}
+
+  /* --- Hover/rollover tooltip shared by every hand-rolled canvas chart
+       (line()/comboChart()) -- a single reused DOM node positioned at the
+       cursor, not a per-chart element, since only one can be visible at a
+       time and charts are fully torn down/rebuilt on every re-render. --- */
+  .chart-tooltip{position:fixed;display:none;background:var(--panel2);border:1px solid var(--line);
+    border-radius:6px;padding:7px 10px;font-size:11.5px;line-height:1.5;color:var(--ink);
+    pointer-events:none;z-index:200;box-shadow:var(--menu-shadow);white-space:nowrap}
+  .chart-tooltip .ct-t{color:var(--muted);font-size:10.5px;margin-bottom:3px;font-weight:600}
+  .chart-tooltip .ct-sw{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px}
+
+  /* --- 3-source tool/connector tables, per-tool detail, errors, credits --- */
+  table.src-table{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:4px}
+  table.src-table th{text-align:left;color:var(--muted);font-weight:600;font-size:11px;
+    text-transform:uppercase;letter-spacing:.04em;padding:6px 10px;border-bottom:1px solid var(--line)}
+  table.src-table td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  table.src-table tr:last-child td{border-bottom:none}
+  table.src-table tr:hover td{background:var(--hover-bg)}
+  .src-pill{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:12.5px}
+  .src-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+  .src-dot.live{background:var(--muted)} .src-dot.transcript{background:var(--warn)} .src-dot.appins{background:var(--accent)}
+  .lag-tag{font-size:10.5px;color:var(--muted);font-weight:400}
+  .sub-breakdown{color:var(--muted);font-size:12.5px}
+  .sub-breakdown b{color:var(--ink);font-weight:600}
+  .pct-bar{display:inline-block;width:70px;height:6px;border-radius:3px;background:var(--bg);
+    overflow:hidden;vertical-align:middle;margin-right:6px}
+  .pct-bar>span{display:block;height:100%;background:var(--ok)}
+  .pct-bar.bad>span{background:var(--err)} .pct-bar.mixed>span{background:var(--warn)}
+  .status-ok{color:var(--ok);font-weight:700} .status-warn{color:var(--warn);font-weight:700}
+  .status-err{color:var(--err);font-weight:700}
+  .status-pending{color:var(--muted);font-style:italic}
+  .err-row td{background:var(--err-bg)!important}
+  .err-type{font-family:Consolas,monospace;font-size:12px;color:var(--err)}
+  .err-msg{color:var(--muted);font-size:12.5px}
+  .err-count{font-weight:700}
+  .note{background:var(--note-bg);border:1px solid var(--note-border);color:var(--note-ink);
+    border-radius:8px;padding:8px 12px;font-size:12.5px;margin:4px 0}
+  .btnrow{display:flex;gap:8px;flex-wrap:wrap}
+  .btnrow .btn{width:auto;margin:0;padding:7px 12px;font-size:12.5px;font-weight:600}
+  .btn.ghost2{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+
+  /* --- Settings tab: read-only reference tables + connection status card --- */
+  .kv-table{width:100%;border-collapse:collapse;font-size:12.5px;margin-bottom:10px}
+  .kv-table th{text-align:left;color:var(--muted);font-weight:600;font-size:10.5px;text-transform:uppercase;
+    letter-spacing:.04em;padding:5px 8px;border-bottom:1px solid var(--line)}
+  .kv-table td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  .kv-table td.k{font-weight:600;white-space:nowrap;width:220px}
+  .status-card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px 14px;
+    font-size:12.5px;margin:10px 0}
+  .status-card.configured{border-color:var(--ok-border)}
 </style>
 </head>
 <body>
@@ -186,6 +277,7 @@
     <div class="tab active" data-tab="live" title="Live Test">▶<div class="rail-label">Test</div></div>
     <div class="tab" data-tab="history" title="Run History">☰<div class="rail-label">History</div></div>
     <div class="tab" data-tab="accounts" title="Accounts">◎<div class="rail-label">Accts</div></div>
+    <div class="tab" data-tab="settings" title="Settings">⚙<div class="rail-label">Config</div></div>
     <div class="rail-spacer"></div>
     <button type="button" class="theme-toggle" id="themeToggleBtn" title="Switch to light mode">☀<div class="rail-label">Light</div></button>
   </nav>
@@ -201,13 +293,29 @@
     </div>
     <div class="runctl">
       <span class="tag" id="runTimer" style="display:none;font-variant-numeric:tabular-nums"></span>
+      <button class="btn ghost2" id="preflightBtn" style="width:auto;margin:0">Preflight Check</button>
       <button class="btn" id="startBtn" style="width:auto;margin:0">Start Test</button>
       <button class="btn stop" id="stopBtn" style="width:auto;margin:0;display:none">Stop Test</button>
     </div>
   </div>
 
+  <div class="panel mt" id="preflightPanel" style="display:none;margin:0 26px 16px">
+    <h2 style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+      <span>Preflight Check <span class="muted" style="text-transform:none;letter-spacing:0;font-weight:400" id="preflightSubtitle"></span></span>
+      <button type="button" class="icon-btn" id="preflightCollapseBtn" title="Collapse/expand" style="font-size:12px">▾ Collapse</button>
+    </h2>
+    <div id="preflightBody"></div>
+  </div>
+
   <div class="wrap">
   <div class="config-col">
+    <!-- RUN LABEL CARD -->
+    <div class="panel">
+      <h2>Run label</h2>
+      <label style="margin-top:0">Name this run so it's easy to find later in History</label>
+      <input id="label" placeholder="e.g. Event spike sim 2k">
+    </div>
+
     <!-- CONNECTION CARD -->
     <div class="panel">
       <h2>Connection
@@ -323,37 +431,40 @@
       </select>
 
       <div id="smokeCfg" style="display:none">
-        <label>Sessions to run</label><input id="smoke_sessions" type="number" value="3">
+        <label>Sessions to run</label><input id="smoke_sessions" type="number" placeholder="3">
         <p class="muted" style="font-size:11px">Fires this many sessions concurrently, once, then stops — a quick end-to-end check of auth/endpoint/prompts before committing to a real load run.</p>
       </div>
 
       <div id="spikeCfg">
         <div class="row">
-          <div><label>Virtual users</label><input id="virtual_users" type="number" value="50"></div>
-          <div><label>Sessions / VU (0=∞)</label><input id="sessions_per_vu" type="number" value="1"></div>
+          <div><label>Virtual users</label><input id="virtual_users" type="number" placeholder="50"></div>
+          <div><label>Sessions / VU (0=∞)</label><input id="sessions_per_vu" type="number" placeholder="1"></div>
         </div>
         <div class="row">
-          <div><label>Ramp-up (s)</label><input id="rampup_seconds" type="number" value="30"></div>
-          <div><label>Hold (s)</label><input id="hold_seconds" type="number" value="120"></div>
+          <div><label>Ramp-up (s)</label><input id="rampup_seconds" type="number" placeholder="30"></div>
+          <div><label>Hold (s)</label><input id="hold_seconds" type="number" placeholder="120"></div>
         </div>
-        <label>Ramp-down (s)</label><input id="rampdown_seconds" type="number" value="15">
+        <label>Ramp-down (s)</label><input id="rampdown_seconds" type="number" placeholder="15">
       </div>
 
       <div id="stepCfg" style="display:none">
-        <label>Steps (RPM, comma-sep)</label><input id="steps" value="20,40,60,80">
+        <label>Steps (RPM, comma-sep)</label><input id="steps" placeholder="20,40,60,80">
         <div class="row">
-          <div><label>Hold each (s)</label><input id="step_hold_seconds" type="number" value="60"></div>
-          <div><label>Max concurrency</label><input id="max_concurrency" type="number" value="100"></div>
+          <div><label>Hold each (s)</label><input id="step_hold_seconds" type="number" placeholder="60"></div>
+          <div><label>Max concurrency</label><input id="max_concurrency" type="number" placeholder="100"></div>
         </div>
       </div>
 
       <div class="row mt">
-        <div><label>Turns / session</label><input id="turns_per_session" type="number" value="4"></div>
-        <div><label>Req timeout (s)</label><input id="request_timeout" type="number" value="120"></div>
+        <div id="turnsPerSessionWrap">
+          <label id="turnsPerSessionLabel">Turns / session</label>
+          <input id="turns_per_session" type="number" placeholder="4">
+        </div>
+        <div><label>Req timeout (s)</label><input id="request_timeout" type="number" placeholder="120"></div>
       </div>
       <div class="row">
-        <div><label>Think min (s)</label><input id="think_min" type="number" value="15"></div>
-        <div><label>Think max (s)</label><input id="think_max" type="number" value="45"></div>
+        <div><label>Think min (s)</label><input id="think_min" type="number" placeholder="15"></div>
+        <div><label>Think max (s)</label><input id="think_max" type="number" placeholder="45"></div>
       </div>
       <label><input type="checkbox" id="stop_on_throttle" style="width:auto"> Stop on first throttle</label>
     </div>
@@ -361,20 +472,34 @@
     <!-- PROMPTS CARD -->
     <div class="panel">
       <h2>Prompts</h2>
-      <div class="label-row">
-        <label style="margin:0">Prompts (one per line)</label>
-        <button type="button" class="icon-btn" id="openPromptSetsBtn" title="Manage reusable question sets">🗂️ Manage sets</button>
-      </div>
-      <textarea id="prompts">What is the standard operating procedure for onboarding?
-Summarize the safety guidelines for lab access.
-What are the steps to file an incident report?</textarea>
-      <label style="margin-top:12px">Prompt order</label>
-      <select id="prompt_order">
-        <option value="random">Random pool -- each turn independently samples a random line</option>
-        <option value="sequential">Sequential script -- turn 1 uses line 1, turn 2 uses line 2, etc.</option>
+      <label>Conversation mode</label>
+      <select id="conversation_mode">
+        <option value="pool">Shared prompt pool -- one pool of questions, same for every session (today's default)</option>
+        <option value="scripted">Scripted sessions -- define several full multi-turn scripts; each session runs ONE picked at random</option>
       </select>
-      <p class="muted" style="font-size:11px;margin:4px 0 0" id="promptOrderHint"></p>
-      <label>Run label</label><input id="label" placeholder="e.g. Event spike sim 2k">
+
+      <div id="poolPromptsSection" style="margin-top:12px">
+        <div class="label-row">
+          <label style="margin:0">Prompts (one per line)</label>
+          <button type="button" class="icon-btn" id="openPromptSetsBtn" title="Manage reusable question sets">🗂️ Manage sets</button>
+        </div>
+        <textarea id="prompts" placeholder="What is the standard operating procedure for onboarding?&#10;Summarize the safety guidelines for lab access.&#10;What are the steps to file an incident report?"></textarea>
+        <label style="margin-top:12px">Prompt order</label>
+        <select id="prompt_order">
+          <option value="random">Random pool -- each turn independently samples a random line</option>
+          <option value="sequential">Sequential script -- turn 1 uses line 1, turn 2 uses line 2, etc.</option>
+        </select>
+        <p class="muted" style="font-size:11px;margin:4px 0 0" id="promptOrderHint"></p>
+      </div>
+
+      <div id="scriptedPromptsSection" style="display:none;margin-top:12px">
+        <p class="muted" style="font-size:11px;margin:0 0 8px">Each session runs ONE of your saved scripts, start to
+          finish, in order -- picked at random. Scripts can have different numbers of turns (e.g. imported from a
+          Copilot Studio test-case export), so "Turns / session" doesn't apply here.</p>
+        <div id="scriptsSummary" class="muted" style="font-size:12.5px;margin-bottom:6px">No scripts defined yet.</div>
+        <div id="scriptsPreview" style="font-size:11.5px;margin-bottom:8px"></div>
+        <button type="button" class="btn ghost2" id="editScriptsBtn">✏️ Edit scripts…</button>
+      </div>
     </div>
   </div><!-- /config-col -->
 
@@ -388,16 +513,35 @@ What are the steps to file an incident report?</textarea>
       <div class="kpi warn"><div class="v" id="k_thr">0</div><div class="l">Throttled</div></div>
       <div class="kpi"><div class="v" id="k_active">0</div><div class="l">Active sessions</div></div>
       <div class="kpi"><div class="v" id="k_rpm">0</div><div class="l">Achieved RPM</div></div>
-      <div class="kpi"><div class="v" id="k_p50">0</div><div class="l">p50 ms</div></div>
-      <div class="kpi"><div class="v" id="k_p95">0</div><div class="l">p95 ms</div></div>
+      <div class="kpi"><div class="v" id="k_p50">0</div><div class="l">p50 turn time (ms)</div></div>
+      <div class="kpi"><div class="v" id="k_p95">0</div><div class="l">p95 turn time (ms)</div></div>
       <div class="kpi"><div class="v" id="k_tools">0</div><div class="l">Tool calls (live)</div></div>
       <div class="kpi"><div class="v" id="k_know">0</div><div class="l">Knowledge hits</div></div>
       <div class="kpi warn"><div class="v" id="k_toolerr">0</div><div class="l">Tool errors (downstream)</div></div>
     </div>
 
     <div class="grid2">
-      <div class="panel"><h2>Throughput (RPM) & errors</h2><canvas id="chartThr"></canvas></div>
-      <div class="panel"><h2>Latency p50 / p95 (ms)</h2><canvas id="chartLat"></canvas></div>
+      <div class="panel">
+        <h2>Throughput (RPM) & errors</h2>
+        <div class="cs" id="liveThrSubtitle">Active sessions (area, left scale) vs. RPM/errors/throttled (lines, right scale)</div>
+        <canvas id="chartThr"></canvas>
+        <div class="legend">
+          <span><span class="lg-swatch" style="background:#4ea1ff"></span>Active sessions</span>
+          <span><span class="lg-swatch" style="background:#8f6fe8"></span>RPM</span>
+          <span><span class="lg-swatch" style="background:#e85c5c"></span>Errors</span>
+          <span><span class="lg-swatch" style="background:#f2b441"></span>Throttled</span>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Turn Time p50 / p95 (ms)</h2>
+        <div class="cs" id="liveLatSubtitle">Active sessions (area, left scale) vs. p50/p95 turn time (lines, right scale)</div>
+        <canvas id="chartLat"></canvas>
+        <div class="legend">
+          <span><span class="lg-swatch" style="background:#4ea1ff"></span>Active sessions</span>
+          <span id="liveLatP50Legend"><span class="lg-swatch" style="background:#36c08a"></span>p50</span>
+          <span id="liveLatP95Legend"><span class="lg-swatch" style="background:#f2b441"></span>p95</span>
+        </div>
+      </div>
     </div>
 
     <div class="grid2 mt">
@@ -410,6 +554,21 @@ What are the steps to file an incident report?</textarea>
     <div class="panel mt"><h2>By tool invoked (live, best-effort)</h2>
       <table id="toolTbl"><thead><tr><th>Tool</th><th>Invocations</th></tr></thead><tbody></tbody></table>
       <p class="muted" style="font-size:11px">Parsed live from the agent's plan events. Authoritative counts come from transcript enrichment in Run History.</p>
+    </div>
+
+    <div class="panel mt">
+      <div class="label-row">
+        <h2 style="margin:0">Breakdown by</h2>
+        <select id="liveBreakdownDim" style="width:auto">
+          <option value="account">Account</option>
+          <option value="prompt">Prompt</option>
+          <option value="turn_position">Turn position</option>
+        </select>
+      </div>
+      <p class="muted" style="font-size:11px" id="liveBreakdownHint"></p>
+      <table id="liveBreakdownTbl"><thead><tr>
+        <th>—</th><th>Requests</th><th>Success</th><th>p50</th><th>p95</th><th>Errors</th><th>Throttled</th>
+      </tr></thead><tbody></tbody></table>
     </div>
 
     <div class="panel mt"><h2>Embedded tool / connector errors (downstream failures)</h2>
@@ -434,39 +593,69 @@ What are the steps to file an incident report?</textarea>
     </div>
   </div>
   <div class="tab-body">
-  <div class="panel mt">
-    <h2>Trend across runs</h2>
-    <div class="row">
-      <div><label>Filter by schema (optional)</label><input id="trendSchema" placeholder="e.g. new_SOPStandardAgent"></div>
-      <div style="display:flex;align-items:flex-end"><button class="btn" style="margin:0" id="trendRefreshBtn">Refresh trend</button></div>
+  <div class="hist-shell mt">
+    <div class="runlist-panel">
+      <div class="runlist-head"><h2>Run History <span class="count" id="histCount">(0)</span></h2></div>
+      <div class="runlist-filter"><input id="histFilter" placeholder="Filter by schema, label…" oninput="renderHistList()"></div>
+      <div class="runlist-items" id="histList"></div>
     </div>
-    <div class="grid2 mt">
-      <div><p class="muted" style="font-size:11px;margin:4px 0">p50 / p95 latency (ms) across runs</p><canvas id="trendLat"></canvas></div>
-      <div><p class="muted" style="font-size:11px;margin:4px 0">Success rate (%) & throttled count across runs</p><canvas id="trendSucc"></canvas></div>
-    </div>
-  </div>
-  <div class="panel mt">
-    <h2>Run History</h2>
-    <div class="hist-toolbar">
-      <span class="muted" id="histCount" style="font-size:11px"></span>
-    </div>
-    <div class="runlist" id="histList"></div>
-    <p class="muted mt">Credit/consumption data aggregates daily and may take hours to surface.
-      Use “Refresh credits” on a run to re-query allocation & billing state.</p>
-  </div>
+    <!-- Single scroll container for the whole right-hand column: three
+         separate stacked cards -- the per-run detail (#histDetail, fully
+         re-rendered by renderHistDetail()), Session Explorer, and Trend --
+         sharing one scrollbar here instead of living in a separate
+         page-level scroll region (which used to stack a 3rd scrollbar on
+         top of the run-list's and this pane's own). -->
+    <div class="detail-panel">
+      <div class="panel" id="histDetail"><p class="muted">No runs yet.</p></div>
 
-  <div class="panel mt" id="sessionExplorer" style="display:none">
-    <h2>Session explorer — <span id="sessRunLabel" class="muted" style="text-transform:none;letter-spacing:0"></span></h2>
-    <div class="grid2">
-      <div>
-        <p class="muted" style="font-size:11px;margin:4px 0">Sessions (conversations) in this run — click one to view its transcript</p>
-        <table style="font-size:12px"><thead><tr>
-          <th>Started</th><th>Turns</th><th>Avg latency</th><th>Errors</th><th>Throttled</th><th>Tool errors</th>
-        </tr></thead><tbody id="sessList"></tbody></table>
+      <div class="panel" id="sessionExplorer" style="display:none">
+        <h2>Session explorer — <span id="sessRunLabel" class="muted" style="text-transform:none;letter-spacing:0"></span></h2>
+        <div class="grid2">
+          <div>
+            <p class="muted" style="font-size:11px;margin:4px 0">Sessions (conversations) in this run — click one to view its transcript</p>
+            <table style="font-size:12px"><thead><tr>
+              <th>Started</th><th>Turns</th><th>Avg turn time</th><th>Errors</th><th>Throttled</th><th>Tool errors</th>
+            </tr></thead><tbody id="sessList"></tbody></table>
+          </div>
+          <div>
+            <p class="muted" style="font-size:11px;margin:4px 0" id="sessTranscriptLabel">Select a session to view its transcript</p>
+            <div class="feed" id="sessTranscript" style="max-height:420px"></div>
+          </div>
+        </div>
       </div>
-      <div>
-        <p class="muted" style="font-size:11px;margin:4px 0" id="sessTranscriptLabel">Select a session to view its transcript</p>
-        <div class="feed" id="sessTranscript" style="max-height:420px"></div>
+
+      <div class="panel">
+        <h2>Trend across runs</h2>
+        <p class="muted" style="font-size:11.5px;margin:-4px 0 10px">
+          Only meaningful when comparing runs against the <b>same agent/schema</b> over time (e.g. catching a
+          regression after a change) — mixing runs across different agents isn't an apples-to-apples comparison,
+          so a schema must be picked below rather than defaulting to "all runs."
+        </p>
+        <div class="row">
+          <div><label>Schema</label><select id="trendSchema"><option value="">— Select a schema —</option></select></div>
+          <div style="display:flex;align-items:flex-end"><button class="btn" style="margin:0" id="trendRefreshBtn">Refresh trend</button></div>
+        </div>
+        <div class="grid2 mt" id="trendCharts" style="display:none">
+          <div>
+            <p class="muted" style="font-size:11px;margin:4px 0">p50 / p95 turn time (ms) across runs</p>
+            <canvas id="trendLat"></canvas>
+            <div class="legend">
+              <span title="p50 (median): half of all runs had a p50 turn time at or below this value; half were higher."><span class="lg-swatch" style="background:#36c08a"></span>p50</span>
+              <span title="p95: in each run, 95% of requests completed faster than this value -- only the slowest 5% took longer. A better signal for &quot;how bad does it get&quot; than an average."><span class="lg-swatch" style="background:#f2b441"></span>p95</span>
+            </div>
+          </div>
+          <div>
+            <p class="muted" style="font-size:11px;margin:4px 0">Success rate (%) & throttled count across runs</p>
+            <canvas id="trendSucc"></canvas>
+            <div class="legend">
+              <span title="Share of requests that completed successfully in that run, overall."><span class="lg-swatch" style="background:#4ea1ff"></span>Success rate</span>
+              <span title="Count of requests rejected with a throttling/rate-limit response in that run (plotted on the same 0-100 scale as success rate, so large throttle counts may clip at the top)."><span class="lg-swatch" style="background:#e85c5c"></span>Throttled</span>
+            </div>
+          </div>
+        </div>
+        <p class="muted mt" id="trendEmpty" style="font-size:12px">Pick a schema above to see its trend across runs.</p>
+        <p class="muted mt" style="font-size:11px">Credit/consumption data aggregates daily and may take hours to surface.
+          Use "Refresh credits" on a run to re-query allocation & billing state.</p>
       </div>
     </div>
   </div>
@@ -516,6 +705,119 @@ What are the steps to file an incident report?</textarea>
   </div><!-- /tab-body -->
 </div><!-- /tab-accounts -->
 
+<!-- SETTINGS TAB -->
+<div style="display:none" id="tab-settings">
+  <div class="pagehead">
+    <div><h1 style="font-size:17px;margin:0;font-weight:700">Settings</h1></div>
+  </div>
+  <div class="tab-body">
+  <div class="panel mt">
+    <h2>First-time setup</h2>
+    <p class="muted" style="font-size:12px">Walks through the optional tool check, creating an Entra app
+      registration, and signing in/saving it as a reusable profile. Runs automatically the very first time
+      this app is opened (no saved profiles yet) -- reopen it anytime here.</p>
+    <button class="btn" style="margin:0;width:auto" id="openSetupWizardBtn">Run setup wizard</button>
+  </div>
+  <div class="panel mt">
+    <h2>Application Insights connection</h2>
+    <p class="muted" style="font-size:12px">Lets Run History's "Check App Insights" button query GenAI tool-call
+      spans (~1-2 min lag) for a run's conversations, correlated by conversation_id — the fastest of the three
+      tool/connector enrichment sources. Uses the already-authenticated <code>az</code> CLI, the same pattern as
+      the credits (<code>pac</code>) check.</p>
+    <label>Azure Portal URL or ARM resource ID</label>
+    <div class="row">
+      <input id="aiResourceRef" placeholder="Azure Portal URL or ARM resource ID for your Application Insights resource">
+      <button class="btn" style="margin:0;width:auto" id="aiConnectBtn">Connect</button>
+    </div>
+    <div id="aiConnectState" class="muted" style="font-size:12px;margin-top:8px"></div>
+    <div id="aiStatusCard" class="status-card">Checking current status…</div>
+  </div>
+
+  <div class="panel mt">
+    <h2>Settings reference</h2>
+    <p class="muted" style="font-size:12px">What every configuration field in this app actually does and where
+      it's used — read-only documentation, no inputs here.</p>
+
+    <h3 style="font-size:13px;margin:16px 0 6px">Live Test tab</h3>
+    <table class="kv-table"><tbody>
+      <tr><td class="k">Protocol</td><td>D2E (Direct-to-Engine) or A2A. D2E only works against Standard-harness
+        Copilot Studio agents — GitHub Copilot harness agents reject it outright with a canned refusal. A2A exists
+        specifically to reach GitHub Copilot harness agents; it is <b>required</b> for those agents.</td></tr>
+      <tr><td class="k">Endpoint URL / Host / Schema / Environment ID</td><td>The D2E conversation endpoint (or A2A
+        agent URL) you paste; host/schema/environment_id are auto-derived from it. Identifies which agent and
+        environment a run targets.</td></tr>
+      <tr><td class="k">Dataverse org URL (org_url)</td><td>The environment's Dataverse URL
+        (e.g. https://orgxxxx.crm.dynamics.com). Used only for the History tab's transcript-enrichment check
+        (reading conversationtranscript records).</td></tr>
+      <tr><td class="k">Auth mode</td><td>How the tool signs in: device code (one account), account pool (multiple
+        accounts via wizard), static bearer token (paste one, no sign-in), or A2A confidential client
+        (tenant_id/client_id + client_secret, no interactive sign-in).</td></tr>
+      <tr><td class="k">Tenant ID / Client ID</td><td>The Entra tenant and app registration used for sign-in and
+        for Dataverse/credit lookups tied to this run.</td></tr>
+      <tr><td class="k">Static token / Client secret</td><td>Only used by the matching auth mode; never persisted
+        into saved presets or auth profiles.</td></tr>
+      <tr><td class="k">Mode: smoke / stepped / spike</td><td>Smoke fires a handful of sessions once, for a quick
+        end-to-end sanity check. Event spike ramps virtual users up, holds, then ramps down. Stepped RPM holds a
+        sequence of target request rates to characterize throughput limits.</td></tr>
+      <tr><td class="k">Mode parameters</td><td>Smoke: sessions to run. Spike: virtual users, sessions/VU,
+        ramp-up/hold/ramp-down seconds. Stepped: comma-separated RPM steps, hold-each seconds, max concurrency.</td></tr>
+      <tr><td class="k">Turns / session</td><td>How many conversation turns each virtual session sends before
+        ending.</td></tr>
+      <tr><td class="k">Think time (min/max)</td><td>Randomized pause between turns within a session, to emulate
+        realistic user pacing instead of hammering the agent with back-to-back requests.</td></tr>
+      <tr><td class="k">Request timeout</td><td>Per-request timeout (seconds) before a call is treated as
+        failed.</td></tr>
+      <tr><td class="k">Prompts / prompt order</td><td>The question pool sent to the agent. "Random pool" samples
+        a random line per turn; "Sequential script" uses line 1 for turn 1, line 2 for turn 2, etc.</td></tr>
+      <tr><td class="k">Conversation mode: Scripted sessions</td><td>Alternative to the shared prompt pool above --
+        define several full multi-turn scripts (each its own ordered list of turn prompts, any length). Each session
+        runs ONE whole script, picked at random, start to finish; "Turns / session" doesn't apply in this mode since
+        turn count comes from the chosen script. Scripts can be typed by hand or imported from a Copilot Studio
+        test-case CSV export (Test Case ID, Turn, Query). Has its own "Edit scripts" library, separate from question
+        sets.</td></tr>
+    </tbody></table>
+
+    <h3 style="font-size:13px;margin:16px 0 6px">Accounts tab</h3>
+    <table class="kv-table"><tbody>
+      <tr><td class="k">Pool (auth profile)</td><td>A named (tenant_id, client_id, auth_mode) combo you can switch
+        between without retyping GUIDs — independent of saved load-test presets.</td></tr>
+      <tr><td class="k">Device-code sign-in</td><td>Each "Add account" click opens a fresh interactive device-code
+        flow (open a URL, enter a short code) so you can add one more real signed-in identity to a pool, for
+        simulating multiple concurrent users.</td></tr>
+      <tr><td class="k">Enable / disable</td><td>Per-account toggle to exclude a cached account from being used in
+        the next run without removing it from the cache — re-enable any time.</td></tr>
+    </tbody></table>
+
+    <h3 style="font-size:13px;margin:16px 0 6px">History tab — enrichment sources</h3>
+    <table class="kv-table"><tbody>
+      <tr><td class="k">Live (SSE)</td><td>Counted in real time from the agent's streamed plan events during the
+        run. Fastest, but best-effort — it only recognizes the Standard-harness "taskDialogId" tool-call marker,
+        so GitHub Copilot harness agents (reached via A2A) always show 0 here even when they made real tool
+        calls.</td></tr>
+      <tr><td class="k">Transcript (Dataverse)</td><td>Authoritative tool/connector/action counts parsed from the
+        environment's conversationtranscript records, keyed by conversation_id. Typically lags ~30-35 min after a
+        conversation starts — "Re-check transcripts" queries on demand.</td></tr>
+      <tr><td class="k">Application Insights</td><td>GenAI OpenTelemetry spans (tool name, success/fail, duration)
+        queried from the linked Log Analytics workspace, correlated by conversation_id. Usually available ~1-2
+        min after a conversation ends — the fastest authoritative source, and the only one that reports per-tool
+        success rate and error messages.</td></tr>
+      <tr><td class="k">Why they can disagree</td><td>Live undercounts for GitHub Copilot harness agents (a
+        different signal format than transcripts/App Insights use). Transcripts and App Insights can disagree in
+        absolute counts because they key off different event granularities (per-invocation vs per-operation), and
+        App Insights has nothing to show if the agent isn't wired to this specific resource. Prefer App Insights
+        or transcripts over Live for final reporting — Live is only a quick in-flight signal.</td></tr>
+    </tbody></table>
+
+    <h3 style="font-size:13px;margin:16px 0 6px">Settings tab</h3>
+    <table class="kv-table"><tbody>
+      <tr><td class="k">Application Insights resource</td><td>The Azure Application Insights resource (and its
+        linked Log Analytics workspace) that the App Insights enrichment source queries. Configure it once here —
+        every run's "Check App Insights" button reuses it.</td></tr>
+    </tbody></table>
+  </div>
+  </div><!-- /tab-body -->
+</div><!-- /tab-settings -->
+
   </main>
 </div><!-- /shell -->
 
@@ -554,9 +856,129 @@ What are the steps to file an incident report?</textarea>
   </div>
 </div>
 
+<!-- SCRIPT SETS MODAL -->
+<div class="modal-backdrop" id="scriptSetsModal">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3>Edit scripts</h3>
+      <button type="button" class="modal-close" id="closeScriptSetsBtn">✕</button>
+    </div>
+    <p class="muted" style="font-size:12px;margin:0 0 10px">
+      Each session runs ONE whole script, picked at random, start to finish. Scripts can have different
+      numbers of turns -- each session's turn count is simply whatever its chosen script has.
+    </p>
+    <label>Saved script sets</label>
+    <div class="row">
+      <select id="scriptSetSelect"><option value="">— Select a saved set —</option></select>
+      <div style="display:flex;gap:6px">
+        <button class="btn" style="margin:0" id="loadScriptSetBtn">Load</button>
+        <button class="btn" style="margin:0;background:var(--err);color:#fff" id="deleteScriptSetBtn">Delete</button>
+      </div>
+    </div>
+
+    <div class="label-row" style="margin-top:14px">
+      <label style="margin:0">Scripts</label>
+      <button type="button" class="icon-btn" id="uploadScriptCsvBtn" title="Import scripts from a Copilot Studio test-case CSV export (new-harness or Standard-harness format)">📄 Upload CSV…</button>
+    </div>
+    <input type="file" id="scriptCsvFile" accept=".csv,text/csv" style="display:none">
+    <p class="muted" style="font-size:11px;margin:0 0 8px">
+      Accepts two export formats: the new-harness test-case export -- one row per TURN, with columns
+      <code>Test Case ID, Turn, Query</code> -- or the Standard-harness (GeneralQuality) eval export, with leading
+      <code>#</code> metadata lines then columns <code>conversationNumber, question, response</code> (turn order
+      inferred from row order per conversation). Any <code>Expected Response</code>/<code>response</code> column is
+      ignored. Rows are grouped by test case/conversation id to rebuild each script. Importing replaces the
+      scripts below.
+    </p>
+    <div id="scriptSetEditorContainer" style="max-height:320px;overflow:auto"></div>
+    <button type="button" class="btn ghost2" id="addScriptSetScriptBtn" style="margin-top:8px">+ Add script</button>
+
+    <div class="row" style="margin-top:10px">
+      <button class="btn" style="margin:0;background:var(--panel2);color:var(--ink);border:1px solid var(--line)" id="updateScriptSetBtn">Update selected</button>
+      <button class="btn" style="margin:0" id="applyScriptSetBtn">Apply to current test</button>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <input id="scriptSetName" placeholder="Name this script set…">
+      <button class="btn" style="margin:0" id="saveScriptSetBtn">Save as new</button>
+    </div>
+    <div id="scriptSetState" class="muted" style="font-size:12px;margin-top:8px"></div>
+  </div>
+</div>
+
+<!-- FIRST-TIME SETUP WIZARD MODAL -->
+<div class="modal-backdrop" id="setupWizardModal">
+  <div class="modal-box" style="max-width:640px">
+    <div class="modal-head">
+      <h3>First-time setup</h3>
+      <button type="button" class="modal-close" id="closeSetupWizardBtn">✕</button>
+    </div>
+    <p class="muted" style="font-size:12px;margin:0 0 14px">
+      Three steps: (1) optional tool check, (2) create one Entra app registration per tenant
+      (one-time, works for every protocol), (3) sign in and save it so it's ready to use.
+      You can close this anytime and reopen it later from Settings.
+    </p>
+
+    <div class="section-title">1. Optional tools</div>
+    <p class="muted" style="font-size:11px;margin:0 0 8px">
+      Neither is required to run load tests -- only for the optional features noted.
+    </p>
+    <div id="setupPrereqs" style="font-size:12.5px;margin-bottom:16px">Checking…</div>
+
+    <div class="section-title">2. Create an Entra app registration (one-time, per tenant)</div>
+    <p id="setupEntraSummary" class="muted" style="font-size:12px;margin:0 0 8px"></p>
+    <table class="kv-table" id="setupPermsTable" style="margin-bottom:10px"><tbody></tbody></table>
+    <div class="label-row" style="margin:0 0 4px">
+      <label style="margin:0;font-size:12px">Automated (Azure CLI) -- copy and run in PowerShell</label>
+      <button type="button" class="icon-btn" id="copyEntraScriptBtn">📋 Copy script</button>
+    </div>
+    <textarea id="setupEntraScript" readonly style="min-height:120px;font-family:monospace;font-size:11px"></textarea>
+    <details style="margin-top:8px">
+      <summary style="cursor:pointer;font-size:12px;color:var(--muted)">Prefer the Entra admin center UI instead? (manual steps)</summary>
+      <ol id="setupManualSteps" style="font-size:12px;margin:8px 0 0;padding-left:18px"></ol>
+    </details>
+
+    <div class="section-title" style="margin-top:18px">3. Sign in &amp; save</div>
+    <p class="muted" style="font-size:11px;margin:0 0 8px">
+      Once the app registration above exists (and admin consent has been granted), enter its IDs and sign in --
+      this proves the whole chain works end-to-end, then saves it as a reusable Auth Profile.
+    </p>
+    <div class="row">
+      <div><label style="font-size:12px">Tenant ID</label><input id="setupTenantId" placeholder="GUID"></div>
+      <div><label style="font-size:12px">Client ID</label><input id="setupClientId" placeholder="GUID"></div>
+    </div>
+    <label style="font-size:12px;margin-top:8px">Protocol to validate against</label>
+    <select id="setupProtocol">
+      <option value="d2e">Direct-to-Engine (D2E)</option>
+      <option value="a2a">A2A</option>
+    </select>
+    <div class="row" style="margin-top:8px">
+      <button class="btn" style="margin:0" id="setupSignInBtn">Sign in</button>
+    </div>
+    <div id="setupAuthState" class="muted" style="font-size:12px;margin-top:8px"></div>
+    <div id="setupSaveRow" style="display:none;margin-top:10px">
+      <label style="font-size:12px">Name this tenant/app registration</label>
+      <div class="row">
+        <input id="setupProfileName" placeholder="e.g. Contoso Production">
+        <button class="btn" style="margin:0" id="setupSaveProfileBtn">Save &amp; finish</button>
+      </div>
+    </div>
+    <div id="setupDoneState" class="muted" style="font-size:12px;margin-top:8px;color:var(--ok)"></div>
+
+    <div class="row" style="margin-top:16px">
+      <button type="button" class="btn ghost2" id="setupSkipBtn">Skip for now</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const $ = id => document.getElementById(id);
 const GUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Shared glossary text for latency-percentile legend tooltips, reused on
+// every chart that plots p50/p95 (Load Impact + Trend across runs) so the
+// explanation stays consistent in one place.
+const P50_TITLE = "p50 (median): half of all requests in this window completed faster than this; half were slower.";
+const P95_TITLE = "p95: 95% of requests completed faster than this value -- only the slowest 5% took longer. A better signal for \"how bad does it get\" than an average, since it isn't masked by a lot of fast requests.";
+$('liveLatP50Legend').title = P50_TITLE;
+$('liveLatP95Legend').title = P95_TITLE;
 let polling = null;
 
 // --- Unified "⋯ Manage" popover (Connection/Authentication saved-entity menus,
@@ -640,7 +1062,9 @@ document.querySelectorAll('.tab').forEach(t => t.onclick = () => {
   $('tab-live').style.display = tab==='live'?'flex':'none';
   $('tab-history').style.display = tab==='history'?'flex':'none';
   $('tab-accounts').style.display = tab==='accounts'?'flex':'none';
-  if(tab==='history'){ loadHistory(); loadTrend(); }
+  $('tab-settings').style.display = tab==='settings'?'flex':'none';
+  if(tab==='history'){ loadHistory(); populateTrendSchemas(); loadTrend(); }
+  if(tab==='settings'){ loadAppInsightsConfig(); }
   if(tab==='accounts'){
     // Prefer whatever is live in the Live Test panel; fall back to the last
     // persisted values so the Accounts tab never silently shows "no accounts"
@@ -827,7 +1251,7 @@ function loadPromptOrder(){
 }
 function updatePromptOrderHint(){
   const n = $('prompts').value.split('\n').map(s=>s.trim()).filter(Boolean).length;
-  const turns = +$('turns_per_session').value || 0;
+  const turns = numOr('turns_per_session', 4);
   const hint = $('promptOrderHint');
   if($('prompt_order').value === 'sequential'){
     if(n === 0){ hint.textContent = 'Add at least one prompt line.'; return; }
@@ -1011,6 +1435,16 @@ $('mode').onchange = e => {
 $('mode').dispatchEvent(new Event('change'));
 $('protocol').dispatchEvent(new Event('change'));
 
+// Numeric inputs show their default as a grey placeholder now (not a real
+// pre-filled value, per explicit request to keep the forms visually blank
+// by default) -- this reads the field but falls back to that SAME number
+// when left empty, so leaving a field blank and clicking Start still
+// behaves exactly as it did when these were hardcoded `value="..."`
+// attributes; only the visual starting state changed, not the behavior.
+function numOr(id, fallback){
+  const v = $(id).value.trim();
+  return v === '' ? fallback : +v;
+}
 function cfg(){
   return {
     protocol:$('protocol').value,
@@ -1020,16 +1454,24 @@ function cfg(){
     auth_mode:$('auth_mode').value, tenant_id:$('tenant_id').value,
     client_id:$('client_id').value, static_token:$('static_token').value,
     client_secret:$('client_secret').value,
-    mode:$('mode').value, smoke_sessions:+$('smoke_sessions').value,
-    virtual_users:+$('virtual_users').value, sessions_per_vu:+$('sessions_per_vu').value,
-    rampup_seconds:+$('rampup_seconds').value, hold_seconds:+$('hold_seconds').value,
-    rampdown_seconds:+$('rampdown_seconds').value,
-    steps:$('steps').value.split(',').map(x=>+x.trim()).filter(Boolean),
-    step_hold_seconds:+$('step_hold_seconds').value, max_concurrency:+$('max_concurrency').value,
-    turns_per_session:+$('turns_per_session').value, request_timeout:+$('request_timeout').value,
-    think_time_seconds:[+$('think_min').value,+$('think_max').value],
-    prompts:$('prompts').value.split('\n').map(s=>s.trim()).filter(Boolean),
+    mode:$('mode').value, smoke_sessions:numOr('smoke_sessions', 3),
+    virtual_users:numOr('virtual_users', 50), sessions_per_vu:numOr('sessions_per_vu', 1),
+    rampup_seconds:numOr('rampup_seconds', 30), hold_seconds:numOr('hold_seconds', 120),
+    rampdown_seconds:numOr('rampdown_seconds', 15),
+    steps:($('steps').value.trim()
+      ? $('steps').value.split(',').map(x=>+x.trim()).filter(Boolean)
+      : [20,40,60,80]),
+    step_hold_seconds:numOr('step_hold_seconds', 60), max_concurrency:numOr('max_concurrency', 100),
+    turns_per_session:numOr('turns_per_session', 4), request_timeout:numOr('request_timeout', 120),
+    think_time_seconds:[numOr('think_min', 15), numOr('think_max', 45)],
+    prompts:($('prompts').value.trim()
+      ? $('prompts').value.split('\n').map(s=>s.trim()).filter(Boolean)
+      : ['What is the standard operating procedure for onboarding?',
+         'Summarize the safety guidelines for lab access.',
+         'What are the steps to file an incident report?']),
     prompt_order:$('prompt_order').value,
+    conversation_mode:$('conversation_mode').value,
+    scripts:currentScripts,
     stop_on_throttle:$('stop_on_throttle').checked, label:$('label').value
   };
 }
@@ -1040,8 +1482,14 @@ function applyConfig(c){
   if(c.protocol){ $('protocol').value = c.protocol; $('protocol').dispatchEvent(new Event('change')); }
   set('url', c.url); parseUrl();
   set('environment_id', c.environment_id); set('org_url', c.org_url);
-  if(c.auth_mode){ $('auth_mode').value = c.auth_mode; $('auth_mode').dispatchEvent(new Event('change')); }
+  // IMPORTANT: tenant_id/client_id must be set BEFORE dispatching auth_mode's
+  // change event. That handler calls refreshPoolAccounts() synchronously
+  // (for pool mode), which reads $('tenant_id')/$('client_id') at that exact
+  // moment -- dispatching the event first meant it queried pool accounts
+  // using whatever tenant/client was PREVIOUSLY active, not this preset's,
+  // silently showing a stale/wrong tenant's accounts after loading a preset.
   set('tenant_id', c.tenant_id); set('client_id', c.client_id); set('static_token', c.static_token);
+  if(c.auth_mode){ $('auth_mode').value = c.auth_mode; $('auth_mode').dispatchEvent(new Event('change')); }
   // client_secret is intentionally NOT restored from presets (never persisted).
   if(c.mode){ $('mode').value = c.mode; $('mode').dispatchEvent(new Event('change')); }
   set('smoke_sessions', c.smoke_sessions);
@@ -1056,6 +1504,16 @@ function applyConfig(c){
   if(c.prompt_order && Array.from($('prompt_order').options).some(o=>o.value===c.prompt_order)){
     $('prompt_order').value = c.prompt_order;
   }
+  if(c.conversation_mode && Array.from($('conversation_mode').options).some(o=>o.value===c.conversation_mode)){
+    $('conversation_mode').value = c.conversation_mode;
+    applyConversationModeUI();
+  }
+  // Only overwrite scripts when the loaded config actually specifies them --
+  // older presets saved before "Scripted sessions" existed have no `scripts`
+  // field at all, and silently blanking out whatever scripts you already
+  // had applied just because you loaded an unrelated (e.g. connection-only)
+  // preset would be a real data-loss surprise.
+  if(c.scripts && c.scripts.length){ currentScripts = c.scripts; renderScriptsSummary(); }
   $('stop_on_throttle').checked = !!c.stop_on_throttle;
   set('label', c.label);
   updatePromptOrderHint();
@@ -1153,6 +1611,136 @@ $('deleteAuthProfileBtn').onclick = async () => {
 };
 loadAuthProfiles();
 
+$('openSetupWizardBtn').onclick = () => openSetupWizard();
+
+// ---------- First-time setup wizard ----------
+// Thin guided layer over EXISTING sign-in machinery: Step 3's "Sign in"
+// below calls the same /api/authenticate + /api/auth_status endpoints the
+// main Authentication card uses (polled the same way), and "Save & finish"
+// calls the same /api/auth_profiles POST the main card's "Save as new" uses
+// -- this wizard doesn't duplicate auth logic, only the guidance around it.
+function openSetupWizard(){
+  $('setupWizardModal').classList.add('open');
+  loadSetupPrereqs();
+  loadSetupEntraGuide();
+}
+function closeSetupWizard(){
+  $('setupWizardModal').classList.remove('open');
+}
+$('closeSetupWizardBtn').onclick = closeSetupWizard;
+$('setupSkipBtn').onclick = closeSetupWizard;
+$('setupWizardModal').addEventListener('click', e => {
+  if(e.target.id === 'setupWizardModal') closeSetupWizard();
+});
+
+async function loadSetupPrereqs(){
+  const el = $('setupPrereqs');
+  el.textContent = 'Checking…';
+  try {
+    const r = await fetch('/api/setup/prereqs');
+    const p = await r.json();
+    const row = (label, info, usedFor) => {
+      const icon = !info.installed ? '⚪' : (info.signed_in ? '✅' : '⚠️');
+      const status = !info.installed ? 'not installed' : (info.signed_in ? 'ready' : 'installed, not signed in');
+      return `<div style="display:flex;gap:8px;align-items:baseline;margin-bottom:4px">
+        <span>${icon}</span><b>${label}</b><span class="muted">— ${status}${info.account?' ('+esc(info.account)+')':''}</span>
+      </div>
+      ${info.note?`<div class="muted" style="font-size:11px;margin:0 0 6px 24px">${esc(info.note)}</div>`:''}`;
+    };
+    el.innerHTML = row('Azure CLI (az)', p.az, 'App Insights enrichment') +
+                    row('Power Platform CLI (pac)', p.pac, 'credit/consumption lookups');
+  } catch(e) {
+    el.textContent = 'Could not check (server unreachable).';
+  }
+}
+
+async function loadSetupEntraGuide(){
+  try {
+    const r = await fetch('/api/setup/entra_guide');
+    const g = await r.json();
+    $('setupEntraSummary').textContent = g.summary;
+    $('setupPermsTable').querySelector('tbody').innerHTML = g.permissions.map(p =>
+      `<tr><td class="k">${esc(p.api)}</td><td>${esc(p.scope)} <span class="muted">(${esc(p.used_for)})</span></td></tr>`
+    ).join('');
+    $('setupEntraScript').value = g.powershell_script;
+    $('setupManualSteps').innerHTML = g.manual_steps.map(s => `<li>${esc(s)}</li>`).join('');
+  } catch(e) { /* best-effort */ }
+}
+
+$('copyEntraScriptBtn').onclick = () => {
+  const text = $('setupEntraScript').value;
+  const onSuccess = () => {
+    const btn = $('copyEntraScriptBtn'); const orig = btn.textContent;
+    btn.textContent = '✓ Copied'; setTimeout(()=>{ btn.textContent = orig; }, 1500);
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(onSuccess, () => fallbackCopy(text, onSuccess));
+  } else {
+    fallbackCopy(text, onSuccess);
+  }
+};
+
+let _setupAuthPoll = null;
+$('setupSignInBtn').onclick = async () => {
+  const tenantId = $('setupTenantId').value.trim(), clientId = $('setupClientId').value.trim();
+  if(!GUID_RE.test(tenantId)){ alert('Tenant ID doesn\'t look like a GUID.'); return; }
+  if(!GUID_RE.test(clientId)){ alert('Client ID doesn\'t look like a GUID.'); return; }
+  $('setupAuthState').textContent = 'Starting sign-in…';
+  $('setupSaveRow').style.display = 'none';
+  $('setupDoneState').textContent = '';
+  const cfgBody = {tenant_id:tenantId, client_id:clientId, auth_mode:'devicecode', protocol:$('setupProtocol').value};
+  try {
+    const resp = await fetch('/api/authenticate',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(cfgBody)});
+    const body = await resp.json().catch(()=>({error:'Request failed ('+resp.status+')'}));
+    if(!resp.ok){ $('setupAuthState').textContent = '✗ '+(body.error || 'Could not start sign-in.'); return; }
+  } catch(e){ $('setupAuthState').textContent = '✗ Could not reach the server: '+e.message; return; }
+  if(_setupAuthPoll) clearInterval(_setupAuthPoll);
+  _setupAuthPoll = setInterval(async () => {
+    let a;
+    try {
+      const r = await fetch('/api/auth_status');
+      a = await r.json();
+    } catch(e){ return; }
+    if(a.device_prompt && a.status==='pending'){
+      $('setupAuthState').innerHTML = `Open <a href="${a.device_prompt.url}" target="_blank">${a.device_prompt.url}</a> and enter <code>${a.device_prompt.code}</code>`;
+    }
+    if(a.status==='signed_in'){
+      $('setupAuthState').textContent = '✓ Signed in as '+(a.user||'');
+      $('setupSaveRow').style.display = 'block';
+      clearInterval(_setupAuthPoll);
+    }
+    if(a.status==='error'){
+      $('setupAuthState').textContent = '✗ '+(a.user||'Sign-in failed -- check the app registration has the right API permissions admin-consented.');
+      clearInterval(_setupAuthPoll);
+    }
+  }, 1500);
+};
+
+$('setupSaveProfileBtn').onclick = async () => {
+  const name = $('setupProfileName').value.trim();
+  if(!name){ alert('Name this tenant/app registration first.'); return; }
+  const tenant_id = $('setupTenantId').value.trim(), client_id = $('setupClientId').value.trim();
+  await fetch('/api/auth_profiles',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name, tenant_id, client_id, auth_mode:'devicecode'})});
+  await loadAuthProfiles();
+  $('setupDoneState').textContent = `✓ Saved "${name}" -- ready to use from the Authentication card's "Tenant / app registration" dropdown.`;
+  $('setupSaveRow').style.display = 'none';
+};
+
+// Auto-open on a genuinely fresh install (no saved Auth Profile yet) -- but
+// only once per browser unless the user explicitly reopens it later, so
+// dismissing with "Skip for now" doesn't re-nag on every reload.
+(async () => {
+  if(localStorage.getItem('setupWizardSeen')) return;
+  try {
+    const r = await fetch('/api/setup/status');
+    const s = await r.json();
+    if(s.is_first_run){ openSetupWizard(); }
+  } catch(e) { /* best-effort */ }
+  localStorage.setItem('setupWizardSeen', '1');
+})();
+
 // --- Prompt sets: named, reusable question lists, managed in a popup
 // modal so the main form stays uncluttered. ---
 let promptSetsCache = [];
@@ -1225,6 +1813,239 @@ $('applyPromptSetBtn').onclick = () => {
   closePromptSetsModal();
 };
 
+// --- Scripted sessions: each session runs ONE WHOLE SCRIPT (a fully
+// ordered list of turn prompts), picked at random from your saved scripts.
+// Every script in a set must have the SAME turn count (set by Script 1) --
+// a whole test run therefore has one consistent, predictable conversation
+// length, unlike an earlier draft of this feature that allowed mixed
+// lengths per set (confusing: it made "Turns / session" meaningless and
+// let a set silently contain wildly different conversation shapes).
+//
+// `currentScripts` is the single source of truth read by cfg()/applyConfig()
+// -- the main Prompts card no longer embeds a live editor (that cluttered
+// the left column); it just shows a one-line summary + an "Edit scripts…"
+// button that opens the modal below, which IS the editing surface.
+let currentScripts = [];
+
+function renderScriptsSummary(){
+  const el = $('scriptsSummary');
+  const preview = $('scriptsPreview');
+  if(!currentScripts.length){
+    el.textContent = 'No scripts defined yet.';
+    preview.innerHTML = '';
+    return;
+  }
+  const lens = currentScripts.map(s=>s.length);
+  const lo = Math.min(...lens), hi = Math.max(...lens);
+  const turnsText = lo===hi ? `${lo} turn${lo===1?'':'s'} each` : `${lo}–${hi} turns (varies by script)`;
+  el.textContent = `${currentScripts.length} script${currentScripts.length===1?'':'s'} defined · ${turnsText}`;
+  // Compact preview so it's visible at a glance WITHOUT opening "Edit
+  // scripts..." -- each script shown as its first line (truncated) plus its
+  // own turn count, since that's usually enough to recognize which scripts
+  // are currently applied. Capped so a large imported CSV set doesn't turn
+  // this into a huge wall of text on the main page.
+  const MAX_SHOWN = 5;
+  const shown = currentScripts.slice(0, MAX_SHOWN);
+  const rows = shown.map((s, i) => {
+    const first = s[0] || '';
+    const short = first.length > 60 ? first.slice(0,60)+'\u2026' : first;
+    return `<div style="display:flex;gap:6px;padding:2px 0" title="${escAttr(s.join(' \u2192 '))}">`+
+      `<span class="muted" style="flex:0 0 auto">${i+1}.</span>`+
+      `<span style="flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(short)}</span>`+
+      `<span class="muted" style="flex:0 0 auto">${s.length} turn${s.length===1?'':'s'}</span>`+
+    `</div>`;
+  }).join('');
+  const more = currentScripts.length > MAX_SHOWN
+    ? `<div class="muted" style="padding:2px 0">+ ${currentScripts.length - MAX_SHOWN} more…</div>` : '';
+  preview.innerHTML = rows + more;
+}
+
+// Shared block-builder used by the "Edit scripts" modal's live editor
+// (#scriptSetEditorContainer) -- add/remove/read scripts while the modal is
+// open; nothing here touches the main page directly until "Apply".
+function addScriptBlock(containerId, turns){
+  const container = $(containerId);
+  const idx = container.children.length;
+  const block = document.createElement('div');
+  block.className = 'script-block';
+  block.style.marginBottom = '10px';
+  block.innerHTML = `
+    <div class="label-row">
+      <label style="margin:0" class="script-block-label">Script ${idx+1} (one prompt per turn, in order)</label>
+      <button type="button" class="icon-btn remove-script-btn" title="Remove this script">✕</button>
+    </div>
+    <textarea class="script-editor" rows="4" placeholder="Turn 1 prompt...&#10;Turn 2 prompt...&#10;..."></textarea>`;
+  block.querySelector('.script-editor').value = (turns||[]).join('\n');
+  block.querySelector('.remove-script-btn').onclick = () => {
+    block.remove();
+    renumberScriptBlocks(containerId);
+  };
+  container.appendChild(block);
+}
+function renumberScriptBlocks(containerId){
+  $(containerId).querySelectorAll('.script-block').forEach((b,i) => {
+    b.querySelector('.script-block-label').textContent = `Script ${i+1} (one prompt per turn, in order)`;
+  });
+}
+function getScriptsFromContainer(containerId){
+  return Array.from($(containerId).querySelectorAll('.script-editor'))
+    .map(ta => ta.value.split('\n').map(s=>s.trim()).filter(Boolean))
+    .filter(turns => turns.length);
+}
+function setScriptsInContainer(containerId, scripts){
+  $(containerId).innerHTML = '';
+  const list = (scripts && scripts.length) ? scripts : [[]];
+  list.forEach(turns => addScriptBlock(containerId, turns));
+}
+// No turn-count equality requirement -- scripts are allowed (expected,
+// even) to have different lengths, since a real Copilot Studio test-case
+// export naturally varies per test case. Just require at least one
+// non-empty script.
+function validateScripts(scripts){
+  if(!scripts.length) return {ok:false, error:'Add at least one non-empty script first.'};
+  return {ok:true};
+}
+
+// Conversation mode toggle: swaps the Prompts card between the pool editor
+// and the scripted-sessions summary. "Turns / session" doesn't apply in
+// scripted mode (scripts can have different lengths, so there's no single
+// number to show) -- it stays disabled with a note, and the real per-script
+// turn range is shown in the scripts summary line instead.
+function applyConversationModeUI(){
+  const scripted = $('conversation_mode').value === 'scripted';
+  $('poolPromptsSection').style.display = scripted ? 'none' : '';
+  $('scriptedPromptsSection').style.display = scripted ? '' : 'none';
+  $('turnsPerSessionWrap').style.opacity = scripted ? '0.45' : '1';
+  $('turns_per_session').disabled = scripted;
+  $('turnsPerSessionLabel').textContent = scripted ? 'Turns / session (varies per script)' : 'Turns / session';
+}
+$('conversation_mode').addEventListener('change', () => {
+  localStorage.setItem('lastConversationMode', $('conversation_mode').value);
+  applyConversationModeUI();
+});
+(() => {
+  const v = localStorage.getItem('lastConversationMode');
+  if(v && Array.from($('conversation_mode').options).some(o=>o.value===v)) $('conversation_mode').value = v;
+  applyConversationModeUI();
+  renderScriptsSummary();
+})();
+
+$('editScriptsBtn').onclick = () => openScriptSetsModal();
+
+// --- Script sets: named, reusable GROUPS of full multi-turn scripts.
+// Same shape as the prompt-sets modal above, one level deeper (a set holds
+// several scripts, each its own ordered turn list, via /api/script_sets).
+// This modal is now the ONLY place scripts are edited -- it both manages
+// saved/reusable sets AND is the "Edit scripts" editor for the current test.
+let scriptSetsCache = [];
+async function loadScriptSets(){
+  const r = await fetch('/api/script_sets'); scriptSetsCache = await r.json();
+  const sel = $('scriptSetSelect');
+  const prevValue = sel.value;
+  sel.innerHTML = '<option value="">— Select a saved set —</option>' +
+    scriptSetsCache.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  if(prevValue) sel.value = prevValue;
+}
+function openScriptSetsModal(){
+  $('scriptSetsModal').classList.add('open');
+  // Seed the editor with whatever's currently applied to the main test, so
+  // "Save as new"/"Update selected"/further edits have something sensible.
+  setScriptsInContainer('scriptSetEditorContainer', currentScripts);
+  $('scriptSetState').textContent = '';
+  $('scriptSetState').style.color = '';
+  loadScriptSets();
+}
+function closeScriptSetsModal(){
+  $('scriptSetsModal').classList.remove('open');
+}
+function showScriptSetError(msg){
+  $('scriptSetState').textContent = msg;
+  $('scriptSetState').style.color = 'var(--err)';
+}
+function showScriptSetInfo(msg){
+  $('scriptSetState').textContent = msg;
+  $('scriptSetState').style.color = '';
+}
+$('closeScriptSetsBtn').onclick = closeScriptSetsModal;
+$('scriptSetsModal').addEventListener('click', e => {
+  if(e.target.id === 'scriptSetsModal') closeScriptSetsModal(); // click outside the box
+});
+$('addScriptSetScriptBtn').onclick = () => addScriptBlock('scriptSetEditorContainer', []);
+$('loadScriptSetBtn').onclick = async () => {
+  const id = $('scriptSetSelect').value;
+  if(!id){ alert('Select a saved script set first.'); return; }
+  const r = await fetch('/api/script_sets/'+id); const p = await r.json();
+  setScriptsInContainer('scriptSetEditorContainer', p.scripts||[]);
+  showScriptSetInfo(`Loaded "${p.name}" into the editor below.`);
+};
+$('saveScriptSetBtn').onclick = async () => {
+  const name = $('scriptSetName').value.trim();
+  if(!name){ alert('Enter a name for this script set.'); return; }
+  const scripts = getScriptsFromContainer('scriptSetEditorContainer');
+  const v = validateScripts(scripts);
+  if(!v.ok){ showScriptSetError(v.error); return; }
+  const r = await fetch('/api/script_sets',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name, scripts})});
+  const j = await r.json();
+  if(!r.ok){ showScriptSetError(j.error || 'Save failed.'); return; }
+  $('scriptSetName').value='';
+  showScriptSetInfo(`Saved as new set "${name}".`);
+  await loadScriptSets();
+};
+$('updateScriptSetBtn').onclick = async () => {
+  const id = $('scriptSetSelect').value;
+  if(!id){ alert('Select a saved script set to update first (or use "Save as new").'); return; }
+  const existing = scriptSetsCache.find(p=>p.id===id);
+  if(!existing) return;
+  const scripts = getScriptsFromContainer('scriptSetEditorContainer');
+  const v = validateScripts(scripts);
+  if(!v.ok){ showScriptSetError(v.error); return; }
+  if(!confirm(`Overwrite "${existing.name}" with the scripts in the editor?`)) return;
+  const r = await fetch('/api/script_sets',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({id, name:existing.name, scripts})});
+  const j = await r.json();
+  if(!r.ok){ showScriptSetError(j.error || 'Update failed.'); return; }
+  showScriptSetInfo(`Updated "${existing.name}".`);
+  await loadScriptSets();
+};
+$('deleteScriptSetBtn').onclick = async () => {
+  const id = $('scriptSetSelect').value;
+  if(!id) return;
+  if(!confirm('Delete this saved script set?')) return;
+  await fetch('/api/script_sets/'+id,{method:'DELETE'});
+  await loadScriptSets();
+};
+$('applyScriptSetBtn').onclick = () => {
+  const scripts = getScriptsFromContainer('scriptSetEditorContainer');
+  const v = validateScripts(scripts);
+  if(!v.ok){ showScriptSetError(v.error); return; }
+  currentScripts = scripts;
+  renderScriptsSummary();
+  closeScriptSetsModal();
+};
+// CSV import: the Copilot Studio test-case export format (Test Case ID,
+// Turn, Query[, Expected Response]). Parsed server-side (Python's csv
+// module) so quoted fields containing commas are handled correctly -- a
+// naive client-side split('\n')/split(',') would silently corrupt any
+// prompt that itself contains a comma. Header is detected by column name
+// server-side, no manual "skip header" step needed.
+$('uploadScriptCsvBtn').onclick = () => $('scriptCsvFile').click();
+$('scriptCsvFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if(!file) return;
+  const text = await file.text();
+  const r = await fetch('/api/script_sets/parse_csv',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({csv:text})});
+  const j = await r.json();
+  e.target.value = ''; // allow re-selecting the same file name later
+  if(!r.ok){ showScriptSetError(j.error || 'CSV import failed.'); return; }
+  setScriptsInContainer('scriptSetEditorContainer', j.scripts);
+  const lens = j.scripts.map(s=>s.length);
+  const lo = Math.min(...lens), hi = Math.max(...lens);
+  const turnsText = lo===hi ? `${lo} turn(s) each` : `${lo}-${hi} turns, varies by test case`;
+  showScriptSetInfo(`Imported ${j.scripts.length} script(s) from CSV (${turnsText}). Replaced the editor below -- remember to Save/Apply.`);
+});
+
 $('authBtn').onclick = async () => {
   saveAuthIds();
   const tenantId = $('tenant_id').value.trim(), clientId = $('client_id').value.trim();
@@ -1289,6 +2110,102 @@ $('stopBtn').onclick = async () => {
   await fetch('/api/stop',{method:'POST'});
 };
 
+$('preflightBtn').onclick = async () => {
+  saveAuthIds();
+  const btn = $('preflightBtn');
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  $('preflightPanel').style.display = 'block';
+  // A fresh check should always show its results -- re-expand even if the
+  // user collapsed a previous run's panel.
+  $('preflightBody').style.display = 'block';
+  $('preflightCollapseBtn').textContent = '▾ Collapse';
+  $('preflightSubtitle').textContent = '';
+  $('preflightBody').innerHTML = '<p class="muted">Checking account tokens'
+    + (( (cfg().protocol||'d2e')!=='a2a') ? ' and connector consent (this sends a few throwaway conversations per account -- may take a bit)…' : '…') + '</p>';
+  let d = {};
+  try {
+    const r = await fetch('/api/preflight',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(cfg())});
+    d = await r.json();
+    if(!r.ok && !d.accounts){ d = {error: d.error || ('HTTP '+r.status)}; }
+  } catch(e) {
+    d = {error: String(e)};
+  }
+  btn.disabled = false;
+  btn.textContent = original;
+  renderPreflightResult(d);
+};
+
+$('preflightCollapseBtn').onclick = () => {
+  const body = $('preflightBody');
+  const collapsed = body.style.display === 'none';
+  body.style.display = collapsed ? 'block' : 'none';
+  $('preflightCollapseBtn').textContent = collapsed ? '▾ Collapse' : '▸ Expand';
+};
+
+function renderPreflightResult(d){
+  if(d.error){
+    $('preflightSubtitle').innerHTML = '';
+    $('preflightBody').innerHTML = `<div class="insight-callout">✗ ${esc(d.error)}</div>`;
+    return;
+  }
+  const ready = d.overall_ready;
+  $('preflightSubtitle').innerHTML = ready
+    ? `<span style="color:var(--ok);font-weight:700">✓ Ready to run</span>`
+    : `<span style="color:var(--err);font-weight:700">✗ Not ready — see details below</span>`;
+
+  // Friendly-name lookup for connector logical names (which are full
+  // "<botSchema>.<connectorType>.<guid>" strings -- not something to show
+  // raw in the UI) built from the one-time agent connector discovery.
+  const ac = d.agent_connectors;
+  const nameByLogical = {};
+  if(ac && ac.connectors) ac.connectors.forEach(c => { nameByLogical[c.logical_name] = c.display_name; });
+  const friendly = (logical) => nameByLogical[logical] || logical.split('.').slice(1, -1).join('.') || logical;
+
+  const accounts = d.accounts || [];
+  const rows = accounts.map(a => {
+    const tokOk = a.token_status === 'valid';
+    const tokCls = tokOk ? 'status-ok' : 'status-err';
+    const hasErrors = (a.errors||[]).length > 0;
+    const consentTxt = a.connectors_consented && a.connectors_consented.length
+      ? a.connectors_consented.map(friendly).join(', ')
+      : '—';
+    const unconfirmed = a.unconfirmed_connectors && a.unconfirmed_connectors.length
+      ? `<br><span class="muted" style="font-size:11px">ℹ️ not yet confirmed: ${a.unconfirmed_connectors.map(friendly).map(esc).join(', ')}</span>`
+      : '';
+    return `<tr>
+      <td>${esc(a.username||'—')}</td>
+      <td><span class="${tokCls}">${esc(a.token_status||'unknown')}</span></td>
+      <td>${esc(consentTxt)}${unconfirmed}</td>
+      <td>${hasErrors ? `<span class="status-err">${a.errors.map(esc).join('; ')}</span>` : '<span class="status-ok">OK</span>'}</td>
+    </tr>`;
+  }).join('');
+  const table = accounts.length ? `
+    <table class="src-table">
+      <thead><tr><th>Account</th><th style="width:100px">Token</th><th>Connector consent</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>` : '';
+
+  // Agent connector discovery banner -- shows what was looked up from
+  // Dataverse ONCE for the agent (not per account), so it's clear why the
+  // per-account consent check only needed to touch a handful of prompts
+  // instead of walking the whole prompt/script list.
+  let connectorBanner = '';
+  if(ac && ac.status === 'ok' && ac.connectors && ac.connectors.length){
+    const names = ac.connectors.map(c => esc(c.display_name || c.logical_name)).join(', ');
+    connectorBanner = `<p class="muted" style="font-size:12px;margin:0 0 8px">
+      🔎 This agent uses ${ac.connectors.length} connector(s), discovered from Dataverse: <b>${names}</b>.
+      Each account's consent check only needs to confirm these, not every configured prompt.</p>`;
+  } else if(ac && ac.note){
+    connectorBanner = `<p class="muted" style="font-size:12px;margin:0 0 8px">ℹ️ Connector auto-discovery: ${esc(ac.note)}</p>`;
+  }
+
+  const note = d.note ? `<p class="muted mt" style="font-size:12px">${esc(d.note)}</p>` : '';
+  $('preflightBody').innerHTML = connectorBanner + table + note;
+}
+
 function fmtDuration(secs){
   secs = Math.round(secs);
   if(secs < 60) return `${secs}s`;
@@ -1347,6 +2264,7 @@ async function poll(){
       <span class="muted">${e.latency_ms}ms</span><span class="muted">${e.error||''}</span></div>`;
   }).join('');
   drawThr(s.series||[]); drawLat(s.series||[]);
+  if(s.run_id) loadLiveBreakdownFor(s.run_id);
   if(!s.running && s.phase==='complete'){
     $('startBtn').style.display='block'; $('stopBtn').style.display='none';
     clearInterval(polling); polling=null;
@@ -1367,6 +2285,24 @@ async function poll(){
   }
 })();
 
+// Auto-reload when the dev server restarts (e.g. after a code change). This
+// is a single-page app with no router: an already-open tab never re-fetches
+// index.html on its own, so once we edit app.py/templates and restart, that
+// tab keeps running the OLD page's JS/CSS forever -- which is what caused
+// the repeated "the layout broke" reports after every change (it hadn't;
+// the open tab just hadn't picked up the fix yet). Poll a per-process boot
+// id and force a real reload the moment it changes, so open tabs self-heal
+// within seconds of a restart instead of silently going stale.
+let _bootId = null;
+setInterval(async () => {
+  try {
+    const r = await fetch('/api/boot_id', {cache: 'no-store'});
+    const j = await r.json();
+    if(_bootId === null){ _bootId = j.boot_id; return; }
+    if(j.boot_id !== _bootId){ location.reload(); }
+  } catch(e) { /* server mid-restart; try again next tick */ }
+}, 3000);
+
 function line(cv, series, keys, colors, maxHint){
   const c=cv.getContext('2d'), W=cv.width=cv.clientWidth, H=cv.height=cv.clientHeight;
   c.clearRect(0,0,W,H); if(!series.length) return;
@@ -1379,122 +2315,679 @@ function line(cv, series, keys, colors, maxHint){
     c.stroke(); });
   c.fillStyle='#9aa3b2'; c.font='10px sans-serif'; c.fillText(Math.round(max),2,12);
 }
-function drawThr(s){ line($('chartThr'),s,['rpm','errors','throttled'],['#4ea1ff','#e85c5c','#f2b441']); }
-function drawLat(s){ line($('chartLat'),s,['p50','p95'],['#36c08a','#f2b441']); }
+// Live Test's Throughput/Latency charts, upgraded to match the History
+// tab's Load Impact charts: an Active-sessions area (so you can see
+// concurrency ramping live, same as after-the-fact in Run History) behind
+// the existing lines, plus hover tooltips showing exact values per bucket.
+function drawThr(s){
+  const cv = $('chartThr');
+  comboChart(cv, s, 'active_sessions', ['rpm','errors','throttled'], ['#8f6fe8','#e85c5c','#f2b441'], '#4ea1ff');
+  attachChartHover(cv, s, 26, (d)=>`t = ${d.t}s`, [
+    {key:'active_sessions', label:'Active sessions', color:'#4ea1ff', fmt:fmtInt},
+    {key:'rpm', label:'RPM', color:'#8f6fe8', fmt:fmtInt},
+    {key:'errors', label:'Errors', color:'#e85c5c', fmt:fmtInt},
+    {key:'throttled', label:'Throttled', color:'#f2b441', fmt:fmtInt},
+  ]);
+}
+function drawLat(s){
+  const cv = $('chartLat');
+  comboChart(cv, s, 'active_sessions', ['p50','p95'], ['#36c08a','#f2b441'], '#4ea1ff');
+  attachChartHover(cv, s, 26, (d)=>`t = ${d.t}s`, [
+    {key:'active_sessions', label:'Active sessions', color:'#4ea1ff', fmt:fmtInt},
+    {key:'p50', label:'p50 turn time', color:'#36c08a', fmt:fmtMs},
+    {key:'p95', label:'p95 turn time', color:'#f2b441', fmt:fmtMs},
+  ]);
+}
+
+// Sibling to line() above for the "Load Impact" concurrency-vs-latency combo
+// chart: an area fill for `areaKey` (active sessions) plotted against its OWN
+// scale, with `lineKeys` (p50/p95 latency, in ms) plotted as lines against a
+// SEPARATE scale in the same canvas -- concurrency is a small integer while
+// latency is in the thousands of ms, so they can't share one axis. Same
+// hand-rolled canvas approach as line(), no chart library.
+function comboChart(cv, series, areaKey, lineKeys, lineColors, areaColor){
+  const c=cv.getContext('2d'), W=cv.width=cv.clientWidth, H=cv.height=cv.clientHeight;
+  c.clearRect(0,0,W,H); if(!series.length) return;
+  const pad=26;
+  const hasArea = series.some(d=>d[areaKey]!=null);
+  const areaMax = Math.max(1,...series.map(d=>d[areaKey]||0))*1.25;
+  const lineMax = Math.max(1,...series.flatMap(d=>lineKeys.map(k=>d[k]||0)))*1.1;
+  const xs=i=>pad+(W-2*pad)*i/Math.max(series.length-1,1);
+  const yArea=v=>H-pad-(H-2*pad)*v/areaMax;
+  const yLine=v=>H-pad-(H-2*pad)*v/lineMax;
+  c.strokeStyle='#2c313c'; c.beginPath(); c.moveTo(pad,H-pad); c.lineTo(W-pad,H-pad); c.stroke();
+  if(hasArea){
+    c.beginPath();
+    series.forEach((d,i)=>{ const x=xs(i), y=yArea(d[areaKey]||0); i?c.lineTo(x,y):c.moveTo(x,y); });
+    c.lineTo(xs(series.length-1), H-pad); c.lineTo(xs(0), H-pad); c.closePath();
+    c.fillStyle = areaColor+'30'; c.fill();
+    c.strokeStyle = areaColor; c.lineWidth=1.5; c.beginPath();
+    series.forEach((d,i)=>{ const x=xs(i), y=yArea(d[areaKey]||0); i?c.lineTo(x,y):c.moveTo(x,y); });
+    c.stroke();
+  }
+  lineKeys.forEach((k,ki)=>{
+    c.strokeStyle=lineColors[ki]; c.lineWidth=2; c.beginPath();
+    series.forEach((d,i)=>{ const x=xs(i), y=yLine(d[k]||0); i?c.lineTo(x,y):c.moveTo(x,y); });
+    c.stroke();
+  });
+  c.font='10px sans-serif'; c.fillStyle='#9aa3b2'; c.textAlign='left';
+  c.fillText(hasArea?`${Math.round(areaMax)} sess`:'count '+Math.round(areaMax), 2, 12);
+  c.textAlign='right'; c.fillText(`${Math.round(lineMax)}ms`, W-2, 12); c.textAlign='left';
+}
+
+// ---------- Shared chart hover/rollover tooltip ----------
+// One reused tooltip DOM node (not per-chart) since only one chart can be
+// hovered at a time and every chart is a plain <canvas> redrawn from
+// scratch on each render -- there's no canvas-native concept of a "point"
+// to attach a title/tooltip to, so hit-testing is done in JS by mapping the
+// mouse x-position back to the nearest series index using the SAME pad/width
+// math each drawing function used, then showing the matching data values.
+function _chartTooltipEl(){
+  let tip = document.getElementById('chartTooltip');
+  if(!tip){
+    tip = document.createElement('div');
+    tip.id = 'chartTooltip';
+    tip.className = 'chart-tooltip';
+    document.body.appendChild(tip);
+  }
+  return tip;
+}
+function _showChartTooltip(clientX, clientY, title, rows){
+  const tip = _chartTooltipEl();
+  tip.innerHTML = `<div class="ct-t">${esc(title)}</div>` + rows.map(r =>
+    `<div><span class="ct-sw" style="background:${r.color}"></span>${esc(r.label)}: <b>${esc(r.value)}</b></div>`
+  ).join('');
+  tip.style.display = 'block';
+  const off = 14;
+  let left = clientX + off, top = clientY + off;
+  tip.style.left = left + 'px'; tip.style.top = top + 'px';
+  const tr = tip.getBoundingClientRect();
+  if(tr.right > window.innerWidth) tip.style.left = (clientX - tr.width - off) + 'px';
+  if(tr.bottom > window.innerHeight) tip.style.top = (clientY - tr.height - off) + 'px';
+}
+function _hideChartTooltip(){
+  const tip = document.getElementById('chartTooltip');
+  if(tip) tip.style.display = 'none';
+}
+// cv: canvas element. series: the same array drawn. pad: the drawing
+// function's own left/right padding (24 for line(), 26 for comboChart()) --
+// must match so the mouse-x-to-index mapping lines up with what was drawn.
+// tLabelFn(d, i): returns the tooltip's header line for a given point.
+// fields: [{key, label, color, fmt}] -- fmt(value) -> display string.
+function attachChartHover(cv, series, pad, tLabelFn, fields){
+  if(cv._hoverMove) cv.removeEventListener('mousemove', cv._hoverMove);
+  if(cv._hoverLeave) cv.removeEventListener('mouseleave', cv._hoverLeave);
+  if(!series || !series.length){ return; }
+  const move = (e) => {
+    const rect = cv.getBoundingClientRect();
+    const W = rect.width;
+    const frac = (e.clientX - rect.left - pad) / Math.max(W - 2*pad, 1);
+    const idx = Math.max(0, Math.min(series.length - 1,
+      Math.round(frac * Math.max(series.length - 1, 1))));
+    const d = series[idx];
+    const rows = fields.map(f => ({
+      color: f.color, label: f.label,
+      value: f.fmt ? f.fmt(d[f.key]) : String(d[f.key] ?? '—'),
+    }));
+    _showChartTooltip(e.clientX, e.clientY, tLabelFn(d, idx), rows);
+  };
+  const leave = () => _hideChartTooltip();
+  cv.addEventListener('mousemove', move);
+  cv.addEventListener('mouseleave', leave);
+  cv._hoverMove = move; cv._hoverLeave = leave;
+}
+function fmtPct1(v){ return (v==null?'—':(Math.round((+v)*10)/10)+'%'); }
+function fmtInt(v){ return (v==null?'—':Math.round(v)); }
+
+// ---------- Breakdown by: account / prompt / turn position (shared) ----------
+// One generic table + renderer reused by BOTH the Live Test tab and the
+// History tab, rather than three bespoke near-identical tables per
+// dimension -- /api/runs/<id>/breakdown?dimension=... returns the exact
+// same row shape (label/requests/success_rate/p50/p95/errors/throttled)
+// regardless of which dimension was requested.
+const BREAKDOWN_HINTS = {
+  account: 'One row per real signed-in account used in this run (falls back to the virtual-user label for single-account auth modes, which have no per-session account to report) -- look for one identity with much worse success rate or turn time than the rest.',
+  prompt: 'One row per distinct prompt (question) actually sent -- turn-level only (start events carry no prompt). Hover a row to see the full prompt text.',
+  turn_position: 'One row per turn number within a session (1st, 2nd, 3rd...). Most meaningful for Sequential/Scripted-mode runs, where a turn number reliably maps to the same step -- in Random pool mode, a given turn number doesn\u2019t correspond to any specific question.',
+};
+function escAttr(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
+function renderBreakdownRows(tableId, rows, dimension){
+  const tbody = $(tableId).querySelector('tbody');
+  if(!rows || !rows.length){
+    tbody.innerHTML = '<tr><td colspan="7" class="muted">No data yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(r => {
+    let label;
+    if(dimension === 'prompt'){
+      const full = r.label || '';
+      const short = full.length > 70 ? full.slice(0,70)+'\u2026' : full;
+      label = `<span title="${escAttr(full)}">${esc(short)}</span>`;
+    } else {
+      label = esc(r.label);
+    }
+    return `<tr>
+      <td>${label}</td>
+      <td>${r.requests}</td>
+      <td>${r.success_rate!=null?r.success_rate+'%':'—'}</td>
+      <td>${r.p50!=null?r.p50+'ms':'—'}</td>
+      <td>${r.p95!=null?r.p95+'ms':'—'}</td>
+      <td>${r.errors}</td>
+      <td>${r.throttled}</td>
+    </tr>`;
+  }).join('');
+}
+async function loadBreakdownInto(runId, dimSelectId, hintId, tableId){
+  if(!runId) return;
+  const dim = $(dimSelectId).value;
+  $(hintId).textContent = BREAKDOWN_HINTS[dim] || '';
+  try {
+    const r = await fetch(`/api/runs/${runId}/breakdown?dimension=${encodeURIComponent(dim)}`);
+    const rows = await r.json();
+    renderBreakdownRows(tableId, rows, dim);
+  } catch(e) { /* best-effort; leave previous table content on a transient failure */ }
+}
+let _liveBreakdownRunId = null;
+function loadLiveBreakdownFor(runId){
+  _liveBreakdownRunId = runId;
+  loadBreakdownInto(runId, 'liveBreakdownDim', 'liveBreakdownHint', 'liveBreakdownTbl');
+}
+$('liveBreakdownDim').addEventListener('change', () => loadLiveBreakdownFor(_liveBreakdownRunId));
+function loadHistBreakdownFor(runId){
+  loadBreakdownInto(runId, 'histBreakdownDim', 'histBreakdownHint', 'histBreakdownTbl');
+}
+
+async function populateTrendSchemas(){
+  // Independent fetch (rather than reusing the `historyRuns` global) so this
+  // works regardless of whether loadHistory() has resolved yet -- both are
+  // fired together on tab switch and we don't want a load-order race.
+  const r = await fetch('/api/runs');
+  const runs = await r.json();
+  const schemas = [...new Set(runs.map(x => x.schema).filter(Boolean))].sort();
+  const sel = $('trendSchema');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— Select a schema —</option>' +
+    schemas.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  if(schemas.includes(prev)) sel.value = prev;
+}
 
 async function loadTrend(){
   const schema = $('trendSchema').value.trim();
-  const r = await fetch('/api/trends'+(schema?'?schema='+encodeURIComponent(schema):''));
+  // Deliberately NOT defaulting to "all schemas": runs for different
+  // agents/harnesses/modes aren't a meaningful trend line together (a "spike"
+  // might just be a slower unrelated agent, not a regression) -- see the note
+  // in the panel. Require an explicit schema pick instead.
+  if(!schema){
+    $('trendCharts').style.display = 'none';
+    $('trendEmpty').style.display = 'block';
+    return;
+  }
+  const r = await fetch('/api/trends?schema='+encodeURIComponent(schema));
   const t = await r.json();
+  $('trendCharts').style.display = 'grid';
+  $('trendEmpty').style.display = 'none';
   line($('trendLat'), t, ['p50','p95'], ['#36c08a','#f2b441']);
   line($('trendSucc'), t, ['success_rate','throttled'], ['#4ea1ff','#e85c5c'], 100);
+  const runLabel = (d) => `${d.label || '(untitled run)'} — ${fmtRelDate(d.created_iso)}`;
+  attachChartHover($('trendLat'), t, 24, runLabel, [
+    {key:'p50', label:'p50 turn time', color:'#36c08a', fmt:fmtMs},
+    {key:'p95', label:'p95 turn time', color:'#f2b441', fmt:fmtMs},
+  ]);
+  attachChartHover($('trendSucc'), t, 24, runLabel, [
+    {key:'success_rate', label:'Success rate', color:'#4ea1ff', fmt:fmtPct1},
+    {key:'throttled', label:'Throttled (count)', color:'#e85c5c', fmt:fmtInt},
+  ]);
 }
 $('trendRefreshBtn').onclick = loadTrend;
+$('trendSchema').onchange = loadTrend;
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function fmtMs(ms){ if(ms==null) return '—'; return ms>=1000 ? (ms/1000).toFixed(1)+'s' : Math.round(ms)+'ms'; }
+function fmtRelDate(iso){
+  // created_iso is "YYYY-MM-DD HH:MM:SS" local time (see run_store.py) -- turn
+  // it into "Today HH:MM" / "Yesterday HH:MM" / "Nd ago" / short date for the
+  // compact run-list cards.
+  if(!iso) return '';
+  const d = new Date(iso.replace(' ','T'));
+  if(isNaN(d)) return iso;
+  const now = new Date();
+  const dOnly = new Date(d.getFullYear(),d.getMonth(),d.getDate());
+  const nOnly = new Date(now.getFullYear(),now.getMonth(),now.getDate());
+  const days = Math.round((nOnly-dOnly)/86400000);
+  const time = d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  if(days===0) return `Today ${time}`;
+  if(days===1) return `Yesterday ${time}`;
+  if(days>1 && days<7) return `${days}d ago`;
+  return d.toLocaleDateString([], {month:'short',day:'numeric'}) + ' ' + time;
+}
+// Harness display: derived from protocol, which is a reliable proxy in
+// practice -- D2E only ever works for Standard-harness agents (GitHub
+// Copilot harness agents hard-reject it outright with a canned refusal),
+// and A2A exists specifically because it's the only way to reach GitHub
+// Copilot harness agents that D2E can't. A real positive detection (the
+// D2E rejection scan actually firing) still overrides this, since that's
+// empirical proof rather than an inference -- it means this particular
+// "D2E" run was actually talking to a GHCP-harness agent that rejected it.
+function harnessInfo(r){
+  const sm=r.summary||{}, lt=r.live_tools||{}, cfg=r.config||{};
+  const detected = lt.harness_guess || sm.harness_guess || '';
+  if(detected.includes('rejected')){
+    return {text: detected, cls:'harness-warn',
+      title:'This agent rejected the D2E endpoint outright (HTTP 200 + canned refusal). No real conversation occurred -- treat this run\'s results as invalid.'};
+  } else if(cfg.protocol === 'a2a'){
+    return {text:'GitHub Copilot harness (A2A)', cls:'',
+      title:'Derived from protocol: A2A exists specifically to reach GitHub Copilot harness agents, since D2E hard-rejects them.'};
+  } else if(cfg.protocol === 'd2e'){
+    return {text:'Standard harness (D2E)', cls:'',
+      title:'Derived from protocol: D2E only works for Standard-harness agents -- GitHub Copilot harness agents reject it outright.'};
+  }
+  return {text:'Unknown', cls:'', title:'No protocol recorded for this run.'};
+}
+
+let historyRuns = [];
+let selectedHistoryRunId = null;
 
 async function loadHistory(){
   const r=await fetch('/api/runs'); const runs=await r.json();
-  $('histCount').textContent = runs.length ? `${runs.length} run${runs.length===1?'':'s'}` : '';
-  $('histList').innerHTML = runs.map((r,idx)=>{
-    const sm=r.summary||{}; const cr=r.credits||{};
-    const lt=r.live_tools||{}; const te=r.transcript_enrichment||{};
-    let credTxt = 'pending (click Refresh credits)';
-    let credTitle = '';
-    if(cr.status==='ok' && cr.mcs_messages_consumed!=null){
-      const snap = cr.consumption_snapshot_iso ? cr.consumption_snapshot_iso.slice(0,10) : '?';
-      const runDate = (r.created_iso||'').slice(0,10);
-      const stale = snap && runDate && snap < runDate;
-      credTxt = `${cr.mcs_messages_consumed} / ${cr.mcs_messages_allocated}`
-        + (stale ? ' ⚠️ stale' : ' ✓');
-      credTitle = `Consumption snapshot as of ${snap}` +
-        (stale ? ` — PREDATES this run (${runDate}); not yet reflected, re-check later.`
-               : ` — same day or newer than this run.`) +
-        ` Available: ${cr.mcs_messages_available}. Status: ${cr.mcs_messages_status}.`;
-    } else if(cr.status){
-      credTxt = cr.status;
-    }
-    const liveTools = lt.tool_calls!=null?lt.tool_calls:'';
-    const liveKnow = lt.knowledge_hits!=null?lt.knowledge_hits:'';
-    const transTools = te.status==='ok'?te.tool_calls:(te.status?te.status:'—');
-    const cfg = r.config||{};
-    // Harness display: derived from protocol, which is a reliable proxy in
-    // practice -- D2E only ever works for Standard-harness agents (GitHub
-    // Copilot harness agents hard-reject it outright with a canned refusal),
-    // and A2A exists specifically because it's the only way to reach GitHub
-    // Copilot harness agents that D2E can't. A real positive detection (the
-    // D2E rejection scan actually firing) still overrides this, since that's
-    // empirical proof rather than an inference -- it means this particular
-    // "D2E" run was actually talking to a GHCP-harness agent that rejected it.
-    const detected = lt.harness_guess || sm.harness_guess || '';
-    let harness, harnessCls = '', harnessTitle;
-    if(detected.includes('rejected')){
-      harness = detected;
-      harnessCls = 'harness-warn';
-      harnessTitle = 'This agent rejected the D2E endpoint outright (HTTP 200 + canned refusal). '+
-        'No real conversation occurred -- treat this run\'s results as invalid.';
-    } else if(cfg.protocol === 'a2a'){
-      harness = 'GitHub Copilot harness (A2A)';
-      harnessTitle = 'Derived from protocol: A2A exists specifically to reach GitHub Copilot '+
-        'harness agents, since D2E hard-rejects them.';
-    } else if(cfg.protocol === 'd2e'){
-      harness = 'Standard harness (D2E)';
-      harnessTitle = 'Derived from protocol: D2E only works for Standard-harness agents -- '+
-        'GitHub Copilot harness agents reject it outright (see the rejection-detection case above).';
-    } else {
-      harness = 'Unknown';
-      harnessTitle = 'No protocol recorded for this run.';
-    }
-    const mode = cfg.mode || '—';
-    const targetConc = mode==='smoke' ? cfg.smoke_sessions
-      : mode==='stepped' ? cfg.max_concurrency
-      : cfg.virtual_users;
-    const peakConc = sm.peak_active_sessions ?? '';
-    const sessions = sm.conversation_count ?? '';
-    let duration = '—';
-    if(r.created!=null && r.ended!=null){
-      duration = fmtDuration(r.ended - r.created);
-    }
+  historyRuns = runs;
+  if(selectedHistoryRunId && !runs.some(x=>x.id===selectedHistoryRunId)) selectedHistoryRunId = null;
+  if(!selectedHistoryRunId && runs.length) selectedHistoryRunId = runs[0].id; // most recent (ORDER BY created DESC)
+  renderHistList();
+  renderHistDetail();
+}
+
+function getSelectedRun(){ return historyRuns.find(x=>x.id===selectedHistoryRunId) || null; }
+
+function renderHistList(){
+  $('histCount').textContent = `(${historyRuns.length})`;
+  const filter = ($('histFilter').value||'').trim().toLowerCase();
+  const filtered = historyRuns.filter(r => !filter ||
+    (r.schema||'').toLowerCase().includes(filter) || (r.label||'').toLowerCase().includes(filter));
+  $('histList').innerHTML = filtered.map(r=>{
+    const sm=r.summary||{};
     const status = r.status || '—';
     const statusCls = /complete/i.test(status) ? 'ok' : (/error|fail/i.test(status) ? 'err' : 'neutral');
-    const menuId = 'rm_'+idx, detailId = 'rd_'+idx;
-    const labelEsc = (r.label||'').replace(/'/g,"\\'");
-    return `<div class="run-row">
-      <div class="top">
-        <div class="when">${r.created_iso||''}</div>
-        <div class="rlabel">${r.label||'(untitled run)'}<div class="sub">${r.schema||''} · ${mode}</div></div>
-        <span class="badge ${statusCls}">${status}</span>
-        <div class="metrics-strip">
-          <div class="m"><div class="v">${sm.total??'—'}</div><div class="l">Reqs</div></div>
-          <div class="m"><div class="v">${sm.success_rate!=null?sm.success_rate+'%':'—'}</div><div class="l">Success</div></div>
-          <div class="m"><div class="v">${sm.throttled??'—'}</div><div class="l">Throttled</div></div>
-          <div class="m"><div class="v">${sm.p95!=null?sm.p95+'ms':'—'}</div><div class="l">p95</div></div>
-        </div>
-        <div class="row-actions">
-          <button class="icon-btn square" title="Sessions / transcript"
-            onclick="openSessionExplorer('${r.id}','${labelEsc}')">👥</button>
-          <button class="icon-btn square" onclick="toggleManageMenu('${menuId}')">⋯</button>
-          <div class="manage-menu" id="${menuId}" style="right:0;top:34px;min-width:170px">
-            <div class="mm-row" style="margin-bottom:4px"><button class="btn ghost" style="margin:0;width:100%"
-              onclick="refreshCredits('${r.id}', this)">Refresh credits</button></div>
-            <div class="mm-row" style="margin-bottom:4px"><button class="btn ghost" style="margin:0;width:100%"
-              onclick="enrichTools('${r.id}', this, '${(cfg.org_url||'').replace(/'/g,"\\'")}')">Enrich tools</button></div>
-            <div class="mm-row" style="margin-bottom:0"><button class="btn ghost" style="margin:0;width:100%"
-              onclick="window.location.href='/api/runs/${r.id}/export.csv'">Export CSV</button></div>
-          </div>
-          <button class="expand-toggle" onclick="toggleDetail('${detailId}')">▾ Details</button>
-        </div>
-      </div>
-      <div class="run-detail" id="${detailId}">
-        <div><div class="d-l">Target / Peak conc.</div><div class="d-v" title="Configured/requested concurrency (meaning depends on load mode) / Highest simultaneous active sessions actually observed">${targetConc??'—'} / ${peakConc||'—'}</div></div>
-        <div><div class="d-l">Sessions</div><div class="d-v">${sessions||'—'}</div></div>
-        <div><div class="d-l">Duration</div><div class="d-v">${duration}</div></div>
-        <div><div class="d-l">Tools (live / transcript)</div><div class="d-v">${liveTools||0} / ${liveKnow||0} know. · ${transTools}</div></div>
-        <div><div class="d-l">Credits (MCS)</div><div class="d-v" title="${credTitle}">${credTxt}</div></div>
-        <div><div class="d-l">Harness</div><div class="d-v ${harnessCls}" title="${harnessTitle}">${harness}</div></div>
+    const dotCls = statusCls==='ok'?'ok':(statusCls==='err'?'err':'warn');
+    const sel = r.id===selectedHistoryRunId ? ' selected' : '';
+    const mode = (r.config||{}).mode || '';
+    let duration = '';
+    if(r.created!=null && r.ended!=null) duration = fmtDuration(r.ended - r.created);
+    return `<div class="run-card${sel}" onclick="selectHistoryRun('${r.id}')">
+      <div class="rc-top"><span class="rc-when">${fmtRelDate(r.created_iso)}</span>
+        <span class="badge ${statusCls}"><span class="rc-dot ${dotCls}"></span>${esc(status)}</span></div>
+      <div class="rc-label">${esc(r.label)||'(untitled run)'}</div>
+      <div class="rc-sub">${esc(r.schema)||'—'}${mode?' · '+esc(mode):''}${duration?' · '+duration:''}</div>
+      <div class="rc-metrics">
+        <span><b>${sm.success_rate!=null?sm.success_rate+'%':'—'}</b> success</span>
+        <span><b>${sm.total??'—'}</b> reqs</span>
+        <span><b>${sm.p95!=null?sm.p95+'ms':'—'}</b> p95</span>
       </div>
     </div>`;
-  }).join('') || '<p class="muted">No runs yet.</p>';
+  }).join('') || '<p class="muted" style="padding:14px">No runs yet.</p>';
 }
-function toggleDetail(id){ const el = $(id); if(el) el.classList.toggle('open'); }
+
+function selectHistoryRun(id){
+  selectedHistoryRunId = id;
+  renderHistList();
+  renderHistDetail();
+}
+
+function renderHistDetail(){
+  const r = getSelectedRun();
+  const panel = $('histDetail');
+  if(!r){ panel.innerHTML = '<p class="muted">No runs yet.</p>'; return; }
+  const sm=r.summary||{}, cfg=r.config||{};
+  const status = r.status || '—';
+  const statusCls = /complete/i.test(status) ? 'ok' : (/error|fail/i.test(status) ? 'err' : 'neutral');
+  const labelEsc = (r.label||'').replace(/'/g,"\\'");
+  const orgUrlEsc = (cfg.org_url||'').replace(/'/g,"\\'");
+  const h = harnessInfo(r);
+  const mode = cfg.mode || '—';
+  const targetConc = mode==='smoke' ? cfg.smoke_sessions : mode==='stepped' ? cfg.max_concurrency : cfg.virtual_users;
+  const peakConc = sm.peak_active_sessions ?? '—';
+  let duration = '—';
+  if(r.created!=null && r.ended!=null) duration = fmtDuration(r.ended - r.created);
+
+  panel.innerHTML = `
+    <div class="dh-top">
+      <div>
+        <div class="dh-title">${esc(r.label)||'(untitled run)'} <span class="badge ${statusCls}">${esc(status)}</span></div>
+        <div class="dh-sub">${esc(r.schema)||'—'} · ${esc(mode)} ·
+          <span class="${h.cls}" title="${esc(h.title)}">${esc(h.text)}</span> ·
+          ${esc(r.created_iso)} · ${duration}</div>
+      </div>
+      <div class="btnrow">
+        <button class="btn ghost2" onclick="refreshCredits('${r.id}', this)">Refresh credits</button>
+        <button class="btn ghost2" onclick="enrichTools('${r.id}', this, '${orgUrlEsc}')">Re-check transcripts</button>
+        <button class="btn ghost2" onclick="checkAppInsights('${r.id}', this)">Check App Insights</button>
+        <button class="btn ghost2" onclick="openSessionExplorer('${r.id}','${labelEsc}')">Sessions / transcripts</button>
+        <button class="btn ghost2" onclick="window.location.href='/api/runs/${r.id}/export.csv'">Export CSV</button>
+      </div>
+    </div>
+    <div class="kpis hist-kpis">
+      <div class="kpi"><div class="v">${sm.total??'—'}</div><div class="l">Requests</div></div>
+      <div class="kpi ok"><div class="v">${sm.success_rate!=null?sm.success_rate+'%':'—'}</div><div class="l">Success rate</div></div>
+      <div class="kpi warn"><div class="v">${sm.throttled??'—'}</div><div class="l">Throttled</div></div>
+      <div class="kpi"><div class="v">${targetConc??'—'}</div><div class="l">Target concurrency</div></div>
+      <div class="kpi"><div class="v">${peakConc}</div><div class="l">Peak concurrency</div></div>
+      <div class="kpi"><div class="v">${sm.p50!=null?sm.p50+'ms':'—'}</div><div class="l" title="${P50_TITLE}">p50 turn time</div></div>
+      <div class="kpi"><div class="v">${sm.p95!=null?sm.p95+'ms':'—'}</div><div class="l" title="${P95_TITLE}">p95 turn time</div></div>
+      <div class="kpi"><div class="v">${sm.achieved_rpm??'—'}</div><div class="l">Achieved RPM</div></div>
+    </div>
+    ${renderLoadImpact(r)}
+    <div class="panel mt">
+      <div class="label-row">
+        <h2 style="margin:0">Breakdown by</h2>
+        <select id="histBreakdownDim" style="width:auto" onchange="loadHistBreakdownFor(getSelectedRun().id)">
+          <option value="account">Account</option>
+          <option value="prompt">Prompt</option>
+          <option value="turn_position">Turn position</option>
+        </select>
+      </div>
+      <p class="muted" style="font-size:11px" id="histBreakdownHint"></p>
+      <table id="histBreakdownTbl"><thead><tr>
+        <th>—</th><th>Requests</th><th>Success</th><th>p50</th><th>p95</th><th>Errors</th><th>Throttled</th>
+      </tr></thead><tbody></tbody></table>
+    </div>
+    ${renderSourcesTable(r)}
+    ${renderPerToolTable(r.app_insights||{})}
+    ${renderErrorsTable(r.app_insights||{})}
+    ${renderCreditsTable(r)}
+  `;
+  // canvases need to be laid out (clientWidth available) before drawing.
+  drawLoadImpactCharts(r);
+  loadHistBreakdownFor(r.id);
+}
+
+// Single source of truth for "what does the blue area/line on Load Impact
+// charts represent" -- used by BOTH the static legend text under each chart
+// and the actual draw/hover code, so they can never disagree again. Older
+// runs recorded before active_sessions/active_sessions_max tracking existed
+// in stats.py have no real per-bucket concurrency figure at all; for those we
+// fall back to request `count` per bucket as a rough load proxy rather than
+// show a blank/zero line, but that proxy must say "Requests", never "Active
+// sessions" (that mismatch -- hover tooltip correctly saying "Requests
+// (proxy)" while the static legend chip below hardcoded "Active sessions" --
+// was a real bug, not a caching/rendering issue).
+function concAreaInfo(series){
+  const hasMax = series.some(d=>d.active_sessions_max!=null);
+  const hasAvg = series.some(d=>d.active_sessions!=null);
+  const key = hasMax ? 'active_sessions_max' : (hasAvg ? 'active_sessions' : 'count');
+  const isReal = hasMax || hasAvg;
+  return {
+    key, isReal,
+    legendLabel: isReal ? 'Active sessions' : 'Requests (proxy)',
+    chartLabel: isReal ? 'Active sessions' : 'Requests (proxy -- predates concurrency tracking)',
+    compareLabel: isReal ? 'sessions' : 'req/bucket (proxy -- this run predates concurrency tracking)',
+  };
+}
+
+// ---------- Load Impact (Part 2) ----------
+function renderLoadImpact(r){
+  const series = (r.summary && r.summary.series) || [];
+  if(!series.length){
+    return `<div class="section-title">Load Impact</div><p class="muted">No time-bucketed series data recorded for this run.</p>`;
+  }
+  const conc = concAreaInfo(series);
+  return `
+    <div class="section-title">Load Impact <span class="hint">concurrency vs. turn time, and error/throttle rate, over the run — hover either chart for exact values</span></div>
+    <div class="chart-row">
+      <div class="chart-card">
+        <div class="ct">Concurrency vs. Turn Time</div>
+        <div class="cs">${esc(conc.chartLabel)} (area, left scale) vs. p50/p95 turn time (lines, right scale)</div>
+        <canvas id="liCombo"></canvas>
+        <div class="legend">
+          <span><span class="lg-swatch" style="background:#4ea1ff"></span>${esc(conc.legendLabel)}</span>
+          <span title="${P50_TITLE}"><span class="lg-swatch" style="background:#36c08a"></span>p50</span>
+          <span title="${P95_TITLE}"><span class="lg-swatch" style="background:#f2b441"></span>p95</span>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="ct">Error / Throttle rate</div>
+        <div class="cs">${esc(conc.chartLabel)} (area, left scale) vs. error/throttle % (lines, right scale)</div>
+        <canvas id="liErrThr"></canvas>
+        <div class="legend">
+          <span><span class="lg-swatch" style="background:#4ea1ff"></span>${esc(conc.legendLabel)}</span>
+          <span title="Share of requests in this time bucket that failed (non-2xx response or an agent-reported error)."><span class="lg-swatch" style="background:#e85c5c"></span>Error %</span>
+          <span title="Share of requests in this time bucket rejected with a throttling/rate-limit response (e.g. HTTP 429)."><span class="lg-swatch" style="background:#f2b441"></span>Throttled %</span>
+
+        </div>
+      </div>
+    </div>
+    <div id="liInsight"></div>`;
+}
+
+// HEURISTIC comparison, not a statistical claim: compares average p95 turn
+// time in the first third of time buckets (typically low concurrency, early
+// in the run) against the last third (typically sustained/peak load) to
+// give a plain-language sense of whether turn time measurably degraded
+// under higher concurrency. Deliberately simple -- no regression/
+// correlation, just a before/after average -- and falls back to a neutral
+// message for runs with too few buckets or no usable turn-time data rather
+// than producing a nonsensical callout.
+function loadImpactInsight(series){
+  if(!series || series.length < 6){
+    return {cls:'', text:'Not enough data for a load-impact comparison yet (need at least ~6 time buckets in this run).'};
+  }
+  const third = Math.max(1, Math.floor(series.length/3));
+  const lowB = series.slice(0, third), highB = series.slice(-third);
+  const avg = (arr,k)=> arr.length ? arr.reduce((a,d)=>a+(+d[k]||0),0)/arr.length : 0;
+  const lowP95 = avg(lowB,'p95'), highP95 = avg(highB,'p95');
+  if(lowP95<=0 && highP95<=0){
+    return {cls:'', text:'Not enough turn-time data in this run to compare concurrency impact.'};
+  }
+  // Older runs recorded before active_sessions/active_sessions_max tracking
+  // was added to stats.py this session won't have per-bucket concurrency at
+  // all -- fall back to request count/bucket as a rough load proxy instead of
+  // showing a nonsensical "0 sessions" comparison (or crashing).
+  const conc = concAreaInfo(series);
+  const lowConc = Math.round(avg(lowB,conc.key)*10)/10, highConc = Math.round(avg(highB,conc.key)*10)/10;
+  const ratio = lowP95>0 ? highP95/lowP95 : (highP95>0?999:1);
+  if(ratio>=1.3 && highConc>lowConc){
+    return {cls:'warn', text:`<b>p95 turn time increased from ${Math.round(lowP95)}ms to ${Math.round(highP95)}ms (${ratio.toFixed(1)}x)</b> as concurrency rose from ${lowConc} to ${highConc} ${conc.compareLabel}.`};
+  }
+  if(ratio>=1.3){
+    // p95 genuinely got worse, but concurrency did NOT rise between the two
+    // windows (flat or falling) -- the old code silently fell through to the
+    // generic "stayed roughly flat" message here, which is simply false: a
+    // 1.3x+ p95 increase is never "flat". Report it honestly as degradation
+    // that ISN'T explained by rising concurrency, since that's a materially
+    // different (and often more concerning) finding than a normal load-vs-
+    // latency correlation -- e.g. ramp-down-tail saturation, a degrading
+    // downstream dependency, or cumulative session fatigue.
+    return {cls:'warn', text:`<b>p95 turn time increased from ${Math.round(lowP95)}ms to ${Math.round(highP95)}ms (${ratio.toFixed(1)}x)</b>, but NOT explained by rising concurrency -- ${conc.compareLabel} actually went from ${lowConc} to ${highConc} (did not increase). Worth investigating separately: possible causes include lingering saturation into ramp-down, a degrading downstream dependency, or cumulative session effects rather than raw concurrent load.`};
+  }
+  return {cls:'ok', text:`No meaningful turn-time degradation detected — p95 stayed roughly flat (${Math.round(lowP95)}ms → ${Math.round(highP95)}ms) as concurrency moved from ${lowConc} to ${highConc} ${conc.compareLabel}.`};
+}
+
+function drawLoadImpactCharts(r){
+  const series = (r.summary && r.summary.series) || [];
+  if(!series.length) return;
+  const conc = concAreaInfo(series);
+  const cv = $('liCombo');
+  if(cv){
+    comboChart(cv, series, conc.key, ['p50','p95'], ['#36c08a','#f2b441'], '#4ea1ff');
+    attachChartHover(cv, series, 26, (d)=>`t = ${d.t}s`, [
+      {key:conc.key, label:conc.chartLabel, color:'#4ea1ff', fmt:fmtInt},
+      {key:'p50', label:'p50 turn time', color:'#36c08a', fmt:fmtMs},
+      {key:'p95', label:'p95 turn time', color:'#f2b441', fmt:fmtMs},
+    ]);
+  }
+  const errThrSeries = series.map(d=>({
+    t: d.t,
+    [conc.key]: d[conc.key],
+    err_pct: d.count ? (100*(d.errors||0)/d.count) : 0,
+    thr_pct: d.count ? (100*(d.throttled||0)/d.count) : 0,
+  }));
+  const cv2 = $('liErrThr');
+  if(cv2){
+    // Dual-scale combo (same as the concurrency/latency chart above) so the
+    // session-count ramp is visible alongside error/throttle % -- lets you
+    // see directly whether error/throttle spikes line up with rising
+    // concurrency, instead of only being able to eyeball that across two
+    // separate charts.
+    comboChart(cv2, errThrSeries, conc.key, ['err_pct','thr_pct'], ['#e85c5c','#f2b441'], '#4ea1ff');
+    attachChartHover(cv2, errThrSeries, 26, (d)=>`t = ${d.t}s`, [
+      {key:conc.key, label:conc.chartLabel, color:'#4ea1ff', fmt:fmtInt},
+      {key:'err_pct', label:'Error %', color:'#e85c5c', fmt:fmtPct1},
+      {key:'thr_pct', label:'Throttled %', color:'#f2b441', fmt:fmtPct1},
+    ]);
+  }
+  const insight = loadImpactInsight(series);
+  const el = $('liInsight');
+  if(el) el.innerHTML = `<div class="insight-callout ${insight.cls}">${insight.text}</div>`;
+}
+
+// ---------- 3-source tool/connector tables, per-tool detail, errors, credits (Part 3) ----------
+function buildOpBreakdown(ops){
+  if(!ops || !ops.length) return '';
+  const shown = ops.slice(0,4).map(o=>`<b>${esc(o.tool||o.operation)}</b> ${o.success||0}/${o.calls||0} ok`);
+  const extra = ops.length>4 ? ` &nbsp;·&nbsp; +${ops.length-4} more` : '';
+  return shown.join(' &nbsp;·&nbsp; ') + extra;
+}
+
+function renderSourcesTable(r){
+  const lt = r.live_tools||{}, te = r.transcript_enrichment||{}, ai = r.app_insights||{}, cfg = r.config||{};
+
+  // --- Live (SSE) row ---
+  const liveCalls = lt.tool_calls||0;
+  let liveBreakdown;
+  if(liveCalls || lt.knowledge_hits){
+    liveBreakdown = `${liveCalls} tool call${liveCalls===1?'':'s'}, ${lt.knowledge_hits||0} knowledge hit${(lt.knowledge_hits||0)===1?'':'s'}.`;
+  } else if(cfg.protocol==='a2a'){
+    liveBreakdown = 'No signal for GitHub Copilot harness agents — the best-effort SSE counter only detects Standard-harness markers.';
+  } else {
+    liveBreakdown = 'No tool calls detected in the live stream.';
+  }
+
+  // --- Transcript (Dataverse) row ---
+  // status "no_transcripts_yet" must stay visually distinct from a real 0 --
+  // it means "queried fine, nothing synced yet", not "no tools were called".
+  let transCallsHtml, transBreakdown;
+  if(te.status==='ok'){
+    transCallsHtml = `<span class="count-chip">${te.tool_calls||0}</span>`;
+    transBreakdown = `${te.tool_calls||0} tool, ${te.connector_calls||0} connector, ${te.action_calls||0} action, ${te.knowledge_hits||0} knowledge. `+
+      `Checked ${te.checked_convs||0} conversation transcript(s). ${esc(te.note||'')}`;
+  } else if(te.status==='no_transcripts_yet'){
+    transCallsHtml = `<span class="status-pending">pending</span>`;
+    transBreakdown = `<span class="status-pending">${esc(te.note)||'Queried successfully — no transcript record synced yet.'}</span>`;
+  } else if(te.status){
+    transCallsHtml = `<span class="status-warn">${esc(te.status)}</span>`;
+    transBreakdown = esc(te.note||'');
+  } else {
+    transCallsHtml = `<span class="status-pending">not checked yet</span>`;
+    transBreakdown = 'Click "Re-check transcripts" to query Dataverse conversation transcripts for this run.';
+  }
+
+  // --- Application Insights row ---
+  let aiCallsHtml, aiBreakdown;
+  if(ai.status==='ok'){
+    const toolOps = (ai.operations||[]).filter(o=>o.operation==='execute_tool');
+    aiCallsHtml = `<span class="count-chip">${ai.tool_calls||0}</span>`;
+    aiBreakdown = buildOpBreakdown(toolOps) || 'No tool-call spans found for this run\'s conversations.';
+  } else if(ai.status){
+    aiCallsHtml = `<span class="status-warn">${esc(ai.status)}</span>`;
+    aiBreakdown = esc(ai.note||'');
+  } else {
+    aiCallsHtml = `<span class="status-pending">not checked yet</span>`;
+    aiBreakdown = 'Click "Check App Insights" to query GenAI tool-call spans for this run\'s conversations.';
+  }
+
+  return `
+    <div class="section-title">Tool / Connector Activity <span class="count">3 sources</span></div>
+    <table class="src-table">
+      <thead><tr><th style="width:190px">Source</th><th style="width:90px">Lag</th><th style="width:90px">Tool calls</th><th>Breakdown</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><span class="src-pill"><span class="src-dot live"></span>Live (SSE, during run)</span></td>
+          <td class="lag-tag">real-time</td>
+          <td><span class="count-chip">${liveCalls}</span></td>
+          <td class="sub-breakdown">${liveBreakdown}</td>
+        </tr>
+        <tr>
+          <td><span class="src-pill"><span class="src-dot transcript"></span>Transcript (Dataverse)</span></td>
+          <td class="lag-tag">~30-35 min</td>
+          <td>${transCallsHtml}</td>
+          <td class="sub-breakdown">${transBreakdown}</td>
+        </tr>
+        <tr>
+          <td><span class="src-pill"><span class="src-dot appins"></span>Application Insights</span></td>
+          <td class="lag-tag">~1-2 min</td>
+          <td>${aiCallsHtml}</td>
+          <td class="sub-breakdown">${aiBreakdown}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+function renderPerToolTable(ai){
+  if(ai.status!=='ok') return '';
+  const ops = (ai.operations||[]).filter(o=>o.operation==='execute_tool');
+  if(!ops.length) return '';
+  const rows = ops.map(o=>{
+    const calls = o.calls||0, success = o.success||0;
+    const pct = calls ? Math.round(100*success/calls) : 0;
+    const barCls = pct===100 ? '' : (pct===0 ? 'bad' : 'mixed');
+    const statusCls = pct===100 ? 'status-ok' : (pct===0 ? 'status-err' : 'status-warn');
+    return `<tr>
+      <td>${esc(o.tool)}</td>
+      <td class="sub-breakdown">${esc(o.tool_type||'—')}</td>
+      <td>${calls}</td>
+      <td><span class="pct-bar ${barCls}"><span style="width:${pct}%"></span></span><span class="${statusCls}">${pct}%</span></td>
+      <td>${fmtMs(o.avg_duration_ms)}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div class="section-title">App Insights — Per-Tool Detail <span class="count">${ops.length} tool${ops.length===1?'':'s'}</span></div>
+    <table class="src-table">
+      <thead><tr><th>Tool</th><th style="width:160px">Type</th><th style="width:70px">Calls</th>
+        <th style="width:180px">Success rate</th><th style="width:90px">Avg dur.</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+function renderErrorsTable(ai){
+  const errors = ai.errors||[];
+  if(!errors.length) return '';
+  const total = errors.reduce((a,e)=>a+(e.count||0),0);
+  const rows = errors.map(e=>`<tr class="err-row">
+      <td>${esc(e.tool)}</td>
+      <td class="err-type">${esc(e.error_type)}</td>
+      <td class="err-msg">${esc(e.message)}</td>
+      <td class="err-count">${e.count||0}</td>
+    </tr>`).join('');
+  return `
+    <div class="section-title">Errors <span class="count">${total} event${total===1?'':'s'}</span></div>
+    <table class="src-table">
+      <thead><tr><th style="width:220px">Tool</th><th style="width:170px">Error type</th><th>Message</th><th style="width:60px">Count</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    ${ai.note ? `<div class="note">${esc(ai.note)}</div>` : ''}`;
+}
+
+function renderCreditsTable(r){
+  const cr = r.credits||{};
+  let rows;
+  if(cr.status==='ok' && cr.mcs_messages_consumed!=null){
+    const snap = cr.consumption_snapshot_iso ? cr.consumption_snapshot_iso.slice(0,10) : '?';
+    const runDate = (r.created_iso||'').slice(0,10);
+    const stale = snap && runDate && snap < runDate;
+    rows = `
+      <tr><td>Consumed / Allocated</td><td>${cr.mcs_messages_consumed} / ${cr.mcs_messages_allocated}
+        <span class="${stale?'status-warn':'status-ok'}">${stale?'⚠️ stale':'✓ same day or newer'}</span></td></tr>
+      <tr><td>Available</td><td>${cr.mcs_messages_available}</td></tr>
+      <tr><td>Snapshot as of</td><td>${snap}${stale?` — PREDATES this run (${runDate})`:''}</td></tr>`;
+  } else {
+    rows = `<tr><td>Status</td><td class="status-pending">${esc(cr.status) || 'pending (click Refresh credits)'}</td></tr>`;
+  }
+  return `
+    <div class="section-title">Credits (MCS)</div>
+    <table class="src-table">
+      <thead><tr><th style="width:220px">Metric</th><th>Value</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
 async function refreshCredits(id, btn){
   const original = btn.textContent;
   btn.disabled = true;
@@ -1551,6 +3044,26 @@ async function enrichTools(id, btn, savedOrgUrl){
   }
   setTimeout(() => { loadHistory(); }, 1500);
 }
+async function checkAppInsights(id, btn){
+  const original = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  let d = {};
+  try {
+    const r = await fetch('/api/runs/'+id+'/appinsights',{method:'POST'});
+    d = await r.json();
+  } catch(e) {
+    d = {error: String(e)};
+  }
+  if(d.error || d.status==='error'){
+    btn.textContent = '✗ Failed';
+    btn.title = d.error || d.note || 'Check failed';
+  } else {
+    btn.textContent = '✓ Done';
+    btn.title = `status=${d.status||''}; tool calls=${d.tool_calls||0}; ${d.errors&&d.errors.length?d.errors.length+' error type(s). ':''}${d.note||''}`;
+  }
+  setTimeout(() => { loadHistory(); }, 1500);
+}
 
 let currentSessionRunId = null;
 async function openSessionExplorer(runId, label){
@@ -1596,6 +3109,54 @@ async function loadSessionTranscript(runId, conversationId){
   }).join('<div style="border-top:1px solid var(--line);margin:4px 0"></div>') ||
     '<div class="muted">No turns recorded for this session.</div>';
 }
+
+// ---------- Settings tab (Part 4): App Insights connection ----------
+async function loadAppInsightsConfig(){
+  const stateEl = $('aiStatusCard');
+  stateEl.className = 'status-card';
+  stateEl.textContent = 'Checking current status…';
+  try {
+    const r = await fetch('/api/config/appinsights');
+    const cfg = await r.json();
+    renderAppInsightsStatus(cfg);
+  } catch(e) {
+    stateEl.textContent = 'Could not reach the server: ' + e;
+  }
+}
+function renderAppInsightsStatus(cfg){
+  const stateEl = $('aiStatusCard');
+  if(!cfg || cfg.configured===false || !cfg.resource_name){
+    stateEl.className = 'status-card';
+    stateEl.innerHTML = '<span class="muted">Not configured yet — paste an Azure Portal URL or ARM resource ID above and click Connect.</span>';
+    return;
+  }
+  stateEl.className = 'status-card configured';
+  stateEl.innerHTML = `<div><b>${esc(cfg.resource_name)}</b> <span class="status-ok">✓ connected</span></div>
+    <div class="muted" style="margin-top:4px">Resource group: ${esc(cfg.resource_group)||'—'} · Subscription: ${esc(cfg.subscription_id)||'—'}</div>
+    <div class="muted">Workspace: ${esc(cfg.workspace_id)||'—'}</div>
+    <div class="muted">Configured: ${esc(cfg.configured_iso)||'—'}</div>`;
+}
+$('aiConnectBtn').onclick = async () => {
+  const btn = $('aiConnectBtn');
+  const ref = ($('aiResourceRef').value||'').trim();
+  if(!ref){ $('aiConnectState').innerHTML = '<span class="status-warn">Paste an Azure Portal URL or ARM resource ID first.</span>'; return; }
+  const original = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Connecting…';
+  $('aiConnectState').textContent = '';
+  let d = {};
+  try {
+    const r = await fetch('/api/config/appinsights', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body: JSON.stringify({resource_ref: ref})});
+    d = await r.json();
+  } catch(e) {
+    d = {ok:false, note:String(e)};
+  }
+  btn.disabled = false; btn.textContent = original;
+  $('aiConnectState').innerHTML = d.ok
+    ? `<span class="status-ok">✓ ${esc(d.note||'Connected.')}</span>`
+    : `<span class="status-warn">✗ ${esc(d.note||'Connect failed.')}</span>`;
+  if(d.ok){ $('aiResourceRef').value=''; renderAppInsightsStatus(d); }
+};
 </script>
 </body>
 </html>

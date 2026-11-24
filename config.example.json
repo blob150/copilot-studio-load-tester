@@ -1,7 +1,7 @@
 {
   "_comment": "Copy to config.json and fill in. Never commit real passwords.",
-  "host": "ea32dda382d5e9c4a499d7d7f2d31b.f3.environment.api.powerplatform.com",
-  "schema": "new_SOPStandardAgent",
+  "host": "<ENVIRONMENT_HOST>.environment.api.powerplatform.com",
+  "schema": "<AGENT_SCHEMA_NAME>",
   "api_version": "2022-03-01-preview",
 
   "tenant_id": "<YOUR_TENANT_GUID>",

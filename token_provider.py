@@ -27,11 +27,13 @@ from typing import Callable
 
 import msal
 
+from paths import DATA_DIR
+
 SCOPE = ["https://api.powerplatform.com/.default"]
 A2A_SCOPE = ["https://api.powerplatform.com/copilotstudio-a2a/MCS.InvokeAsA2A"]
 MCP_SCOPE = ["https://api.powerplatform.com/copilotstudio-mcp/MCS.InvokeAsMCP"]
 AUTHORITY_TEMPLATE = "https://login.microsoftonline.com/{tenant_id}"
-_CACHE_PATH = Path(__file__).parent / ".token_cache.bin"
+_CACHE_PATH = DATA_DIR / ".token_cache.bin"
 
 
 def _cache_path_for(tenant_id: str, client_id: str, suffix: str) -> Path:
@@ -39,7 +41,7 @@ def _cache_path_for(tenant_id: str, client_id: str, suffix: str) -> Path:
     collides with an A2A/MCP one for the same app registration."""
     safe_tenant = tenant_id.replace("-", "")[:12]
     safe_client = client_id.replace("-", "")[:12]
-    return Path(__file__).parent / f".{suffix}_{safe_tenant}_{safe_client}_token_cache.bin"
+    return DATA_DIR / f".{suffix}_{safe_tenant}_{safe_client}_token_cache.bin"
 
 
 def _load_cache(path: Path = _CACHE_PATH) -> msal.SerializableTokenCache:
@@ -409,6 +411,22 @@ class AccountPoolManager(TokenProvider):
                 f"Silent refresh failed for {account.get('username')}; re-add this "
                 f"account via the wizard.")
         return result["access_token"]
+
+    def username_for(self, key: str) -> str | None:
+        """Same deterministic selection as get_token_for (identical hash(key) %
+        len(accounts) indexing against the same _accounts() list), but reports
+        just the account's username WITHOUT acquiring a token -- used purely
+        for attribution (recording which real identity actually backed a
+        given session/virtual-user) in local run history, so "which account
+        ran this" is knowable after the fact instead of only ever being
+        visible as an opaque virtual-user label like 'vu3'. Returns None if
+        the pool has no enabled accounts (caller should fall back to the
+        virtual-user label in that case)."""
+        accounts = self._accounts()
+        if not accounts:
+            return None
+        account = accounts[hash(key) % len(accounts)]
+        return account.get("username")
 
     def get_token(self) -> str:
         """Fallback for callers with no per-session key: round-robin on every call."""

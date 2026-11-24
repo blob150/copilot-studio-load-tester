@@ -38,7 +38,7 @@ class StatsAggregator:
         self.latencies = []          # all latencies (ms)
         self._time_buckets = defaultdict(lambda: {"count": 0, "ok": 0,
                                                    "throttled": 0, "errors": 0,
-                                                   "latencies": []})
+                                                   "latencies": [], "active_samples": []})
         self.recent = deque(maxlen=50)   # recent events for the live feed
         self._seen_convs = set()
         self._seen_users = set()
@@ -123,6 +123,14 @@ class StatsAggregator:
             b = self._time_buckets[rel]
             b["count"] += 1
             b["latencies"].append(result.latency_ms)
+            # Sampled at each request's completion -- a reasonable proxy for "how
+            # many sessions were concurrently in flight around this time", used to
+            # correlate load (concurrency) against latency/error-rate trends in the
+            # History UI's "Load Impact" charts. Not a perfectly continuous
+            # concurrency trace (that would need sampling on a timer independent of
+            # request completions), but good enough to show ramp shape and whether
+            # latency degrades as concurrency rises.
+            b["active_samples"].append(self.active_sessions)
             if result.throttled:
                 b["throttled"] += 1
             if result.ok:
@@ -173,6 +181,7 @@ class StatsAggregator:
             for rel in sorted(self._time_buckets.keys()):
                 b = self._time_buckets[rel]
                 ls = sorted(b["latencies"])
+                samples = b["active_samples"]
                 series.append({
                     "t": rel,
                     "count": b["count"],
@@ -182,6 +191,8 @@ class StatsAggregator:
                     "throttled": b["throttled"],
                     "p50": round(_percentile(ls, 50)),
                     "p95": round(_percentile(ls, 95)),
+                    "active_sessions": round(sum(samples) / len(samples), 1) if samples else 0,
+                    "active_sessions_max": max(samples) if samples else 0,
                 })
 
             kinds = {}

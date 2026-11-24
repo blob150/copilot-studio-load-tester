@@ -51,22 +51,50 @@ class LoadEngine:
         getter = getattr(self.provider, "get_token_for", None)
         return getter(session_key) if getter else self.provider.get_token()
 
+    def _account_for(self, session_key: str) -> str | None:
+        """Real pooled-account username backing this session, for attribution
+        in run history (the "By account" breakdown) -- separate from
+        session_key itself, which is just the synthetic virtual-user label
+        (e.g. "vu3", "smoke0") and was previously the ONLY identity info ever
+        recorded anywhere. Uses the same deterministic selection as
+        _get_token() so it always matches the account that was actually
+        used. None for single-account providers (static/devicecode/
+        confidential-client) -- those have no per-session account to report,
+        the one identity is implied by the whole run's config."""
+        getter = getattr(self.provider, "username_for", None)
+        return getter(session_key) if getter else None
+
     def _session(self, user_id: str):
         with self._active_lock:
             self._active += 1
             self.stats.set_active(self._active)
+        account = self._account_for(user_id)
         try:
             token = self._get_token(user_id)
             start = self.client.start_conversation(token)
             start.user_id = user_id
+            start.account = account
             self.stats.record("start", start)
             if not start.conversation_id or self._stop.is_set():
                 return
             conv = start.conversation_id
-            prompts = self.cfg.get("prompts") or ["Hello"]
-            turns = int(self.cfg.get("turns_per_session", 4))
+            # Scripted mode: each session is assigned ONE WHOLE SCRIPT (a
+            # fully ordered list of turn prompts), picked at random from the
+            # configured set. Scripts may have different turn counts (e.g.
+            # imported from a Copilot Studio test-case export, where test
+            # cases naturally vary in length) -- this session's turn count is
+            # simply whatever its chosen script has. Pool mode (default) is
+            # completely unchanged below.
+            scripted = (self.cfg.get("conversation_mode") == "scripted")
+            if scripted:
+                scripts = [s for s in (self.cfg.get("scripts") or []) if s]
+                turn_prompts = random.choice(scripts) if scripts else ["Hello"]
+                sequential = True  # a script is always run in its own order
+            else:
+                turn_prompts = self.cfg.get("prompts") or ["Hello"]
+                sequential = (self.cfg.get("prompt_order") == "sequential")
+            turns = len(turn_prompts) if scripted else int(self.cfg.get("turns_per_session", 4))
             tmin, tmax = self.cfg.get("think_time_seconds", [5, 15])
-            sequential = (self.cfg.get("prompt_order") == "sequential")
             for turn_idx in range(turns):
                 if self._stop.is_set():
                     break
@@ -76,21 +104,31 @@ class LoadEngine:
                 # makes sense after the first) -- wraps around if there are
                 # more turns than prompt lines. Random (default): independently
                 # sample a prompt each turn, as before.
-                prompt_text = prompts[turn_idx % len(prompts)] if sequential \
-                    else random.choice(prompts)
+                prompt_text = turn_prompts[turn_idx % len(turn_prompts)] if sequential \
+                    else random.choice(turn_prompts)
                 r = self.client.send_message(token, conv, prompt_text,
                                              user_id=user_id)
                 r.user_id = user_id
+                r.account = account
                 r.prompt = prompt_text
                 self.stats.record("turn", r)
                 if self.cfg.get("stop_on_throttle") and r.throttled:
                     self._stop.set()
                     break
-                # think time
-                think = random.uniform(float(tmin), float(tmax))
-                end = time.time() + think
-                while time.time() < end and not self._stop.is_set():
-                    time.sleep(0.1)
+                # Think time paces the gap BETWEEN turns, emulating a real
+                # user reading/typing before their next message -- it has no
+                # purpose after the LAST turn (there is no next turn to pace),
+                # so sleeping here anyway just adds dead time with nothing
+                # recorded, inflating total run duration well past when the
+                # chart's last real data point is (e.g. an 8s test with 3x
+                # single-turn sessions was previously reporting ~41s, because
+                # every session still slept a full random 15-45s "think"
+                # after its one and only turn before the thread exited).
+                if turn_idx < turns - 1:
+                    think = random.uniform(float(tmin), float(tmax))
+                    end = time.time() + think
+                    while time.time() < end and not self._stop.is_set():
+                        time.sleep(0.1)
         finally:
             with self._active_lock:
                 self._active -= 1
@@ -114,16 +152,29 @@ class LoadEngine:
 
         t0 = time.time()
         uid = 0
+        # Mirror ramp-up's stagger for ramp-down too: without this, EVERY VU
+        # shared the exact same global cutoff (t0+rampup+hold+rampdown), so
+        # concurrency stayed pinned at the full target through the whole
+        # hold+ramp-down window and then every session hard-stopped at the
+        # same instant -- a cliff, not a gradual ramp-down (the "ramp-down"
+        # phase label was purely cosmetic; self._stop_after was computed but
+        # never actually read anywhere). Giving VU i its own cutoff,
+        # staggered across the ramp-down window in the same order they were
+        # started, makes active-session count actually decline gradually,
+        # matching what the chart/label imply.
+        rampdown_slot = (rampdown / target) if (rampdown > 0 and target > 0) else 0
+
         # Each "virtual user" is a long-lived loop launching sessions back-to-back.
         def vu_loop(vu_index):
             launched = 0
+            vu_cutoff = t0 + rampup + hold + (vu_index + 1) * rampdown_slot
             while not self._stop.is_set():
                 # respect ramp schedule: a VU only starts once its slot opens
                 self._session(f"vu{vu_index}")
                 launched += 1
                 if max_sessions_per_vu and launched >= max_sessions_per_vu:
                     break
-                if time.time() - t0 > (rampup + hold + rampdown):
+                if time.time() > vu_cutoff:
                     break
 
         # Ramp-up: stagger VU starts across rampup window
@@ -144,9 +195,10 @@ class LoadEngine:
         while time.time() < hold_end and not self._stop.is_set():
             time.sleep(0.2)
 
-        # Ramp-down
+        # Ramp-down: VUs self-terminate on their own staggered cutoff above;
+        # this just waits out the window and then does a final hard stop as
+        # a safety net for anything still mid-session past the window.
         self.stats.set_phase("ramp-down")
-        self._stop_after = time.time() + rampdown
         down_end = time.time() + rampdown
         while time.time() < down_end and not self._stop.is_set():
             time.sleep(0.2)

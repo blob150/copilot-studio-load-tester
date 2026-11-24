@@ -139,8 +139,8 @@ def main():
             sys.exit(2)
         cfg = json.loads(p.read_text())
     else:
-        cfg = {"host": "ea32dda382d5e9c4a499d7d7f2d31b.f3.environment.api.powerplatform.com",
-               "schema": "new_SOPStandardAgent",
+        cfg = {"host": "<ENVIRONMENT_HOST>.environment.api.powerplatform.com",
+               "schema": "<AGENT_SCHEMA_NAME>",
                "prompts": ["What is the standard operating procedure for onboarding?"]}
 
     provider = make_provider(cfg, args.token)

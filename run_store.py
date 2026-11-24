@@ -12,7 +12,9 @@ import time
 import uuid
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "loadtester.db"
+from paths import DATA_DIR
+
+DB_PATH = DATA_DIR / "loadtester.db"
 _lock = threading.Lock()
 _local = threading.local()
 
@@ -31,6 +33,7 @@ CREATE TABLE IF NOT EXISTS runs (
     credits_json TEXT,
     live_tools_json TEXT,
     transcript_json TEXT,
+    app_insights_json TEXT,
     ended REAL
 );
 CREATE INDEX IF NOT EXISTS idx_runs_created ON runs(created);
@@ -52,7 +55,8 @@ CREATE TABLE IF NOT EXISTS events (
     prompt TEXT,
     response TEXT,
     tool_error INTEGER,
-    tool_errors_json TEXT
+    tool_errors_json TEXT,
+    account TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_events_run ON events(run_id);
 
@@ -80,12 +84,50 @@ CREATE TABLE IF NOT EXISTS prompt_sets (
     prompts_json TEXT
 );
 
+-- Scripted multi-turn sessions: a saved GROUP of named scripts, where each
+-- script is its own fully ordered turn-by-turn conversation (turn count can
+-- differ per script -- a 5-turn script next to a 2-turn script in the same
+-- set). This is deliberately a parent/child pair of tables (not one JSON
+-- blob column) so each script is an addressable row, mirroring how
+-- prompt_sets works today but one level deeper.
+CREATE TABLE IF NOT EXISTS script_sets (
+    id TEXT PRIMARY KEY,
+    name TEXT,
+    created_iso TEXT
+);
+
+CREATE TABLE IF NOT EXISTS script_set_items (
+    id TEXT PRIMARY KEY,
+    script_set_id TEXT,
+    seq INTEGER,
+    turns_json TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_script_set_items_set ON script_set_items(script_set_id);
+
 CREATE TABLE IF NOT EXISTS account_enabled (
     tenant_id TEXT,
     client_id TEXT,
     home_account_id TEXT,
     enabled INTEGER,
     PRIMARY KEY (tenant_id, client_id, home_account_id)
+);
+
+-- Permanent record of "this identity has been observed submitting Allow for
+-- this connector, for this agent" -- confirmed empirically (see preflight.py)
+-- that a Copilot Studio connector consent grant, once made, persists forever
+-- for that (identity, connector) pair. Caching this locally means preflight
+-- never has to re-probe an already-consented account by actually talking to
+-- the agent again -- a real, measured cost (each probe is a genuine LLM
+-- round-trip, tens of seconds) that otherwise repeats on every single
+-- preflight run even though the outcome can never change.
+CREATE TABLE IF NOT EXISTS connector_consents (
+    tenant_id TEXT,
+    client_id TEXT,
+    home_account_id TEXT,
+    schema_name TEXT,
+    connector_logical_name TEXT,
+    resolved_iso TEXT,
+    PRIMARY KEY (tenant_id, client_id, home_account_id, schema_name, connector_logical_name)
 );
 """
 
@@ -107,7 +149,21 @@ def init_db() -> None:
         c.executescript(SCHEMA)
         c.commit()
     _migrate_events_columns()
+    _migrate_runs_columns()
     _migrate_legacy_json()
+
+
+def _migrate_runs_columns() -> None:
+    """Add columns to pre-existing runs tables (older DBs created before a given
+    enrichment source existed)."""
+    c = _conn()
+    cols = {row["name"] for row in c.execute("PRAGMA table_info(runs)").fetchall()}
+    additions = {"app_insights_json": "TEXT"}
+    with _lock:
+        for name, coltype in additions.items():
+            if name not in cols:
+                c.execute(f"ALTER TABLE runs ADD COLUMN {name} {coltype}")
+        c.commit()
 
 
 def _migrate_events_columns() -> None:
@@ -119,6 +175,7 @@ def _migrate_events_columns() -> None:
         "conversation_id": "TEXT", "user_id": "TEXT",
         "prompt": "TEXT", "response": "TEXT",
         "tool_error": "INTEGER", "tool_errors_json": "TEXT",
+        "account": "TEXT",
     }
     with _lock:
         for name, coltype in additions.items():
@@ -184,7 +241,8 @@ def _row_to_run(row: sqlite3.Row) -> dict:
     d["schema"] = d.pop("schema_name", None)
     mapping = {"config_json": "config", "summary_json": "summary",
               "credits_json": "credits", "live_tools_json": "live_tools",
-              "transcript_json": "transcript_enrichment"}
+              "transcript_json": "transcript_enrichment",
+              "app_insights_json": "app_insights"}
     for key, new_key in mapping.items():
         raw = d.pop(key, None)
         d[new_key] = json.loads(raw) if raw else None
@@ -220,14 +278,15 @@ def record_event(run_id: str, kind: str, result) -> None:
         c.execute(
             "INSERT INTO events (run_id, ts, kind, status, latency_ms, "
             "throttled, ok, error, tool_calls, knowledge_hits, conversation_id, "
-            "user_id, prompt, response, tool_error, tool_errors_json) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "user_id, prompt, response, tool_error, tool_errors_json, account) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (run_id, time.time(), kind, result.status, result.latency_ms,
              int(result.throttled), int(result.ok), (result.error or "")[:300],
              getattr(result, "tool_calls", 0), getattr(result, "knowledge_hits", 0),
              result.conversation_id, getattr(result, "user_id", None),
              getattr(result, "prompt", None), response_text,
-             int(getattr(result, "tool_error", False)), tool_errors_json))
+             int(getattr(result, "tool_error", False)), tool_errors_json,
+             getattr(result, "account", None)))
         c.commit()
 
 
@@ -287,6 +346,83 @@ def get_session_detail(run_id: str, conversation_id: str) -> list[dict]:
     return out
 
 
+def _percentile(sorted_vals: list[float], pct: float) -> float:
+    if not sorted_vals:
+        return 0.0
+    k = int(round((pct / 100.0) * (len(sorted_vals) - 1)))
+    return sorted_vals[k]
+
+
+# Dimensions the "Breakdown by:" table (Live Test + History) can group
+# performance/error metrics by. Each shares the exact same output shape
+# (requests/success_rate/p50/p95/errors/throttled) so the UI can render all
+# three with one generic table/renderer and just swap which query produced
+# the rows -- rather than three bespoke near-identical tables.
+BREAKDOWN_DIMENSIONS = ("account", "prompt", "turn_position")
+
+
+def get_breakdown(run_id: str, dimension: str) -> list[dict]:
+    """Aggregated performance/error breakdown for one run, grouped by:
+      - "account": the REAL pooled-account username that backed each session
+        (falls back to the synthetic virtual-user label for single-account
+        auth modes, which have no per-session account to report) -- answers
+        "was performance/errors significantly worse for one specific user."
+      - "prompt": the exact prompt text sent (turn-kind events only -- "start"
+        events carry no prompt) -- answers "did one specific question perform
+        worse than the others."
+      - "turn_position": 1st/2nd/3rd... turn within each conversation
+        (derived via ROW_NUMBER(), since turn index was never itself stored)
+        -- most meaningful for sequential/scripted-mode runs, where a given
+        turn number reliably corresponds to the same semantic step; largely
+        meaningless for random-pool mode, where turn 3 could be any prompt.
+    p50/p95 are computed in Python (SQLite has no built-in percentile
+    aggregate), which is fine here since a single run's event count is small
+    enough to hold in memory per group."""
+    if dimension not in BREAKDOWN_DIMENSIONS:
+        return []
+    c = _conn()
+    if dimension == "account":
+        rows = c.execute(
+            "SELECT COALESCE(account, user_id, '(unknown)') AS grp, "
+            "latency_ms, ok, throttled FROM events WHERE run_id=?", (run_id,)).fetchall()
+    elif dimension == "prompt":
+        rows = c.execute(
+            "SELECT prompt AS grp, latency_ms, ok, throttled FROM events "
+            "WHERE run_id=? AND kind='turn' AND prompt IS NOT NULL", (run_id,)).fetchall()
+    else:  # turn_position
+        rows = c.execute(
+            "SELECT 'Turn ' || turn_no AS grp, latency_ms, ok, throttled, turn_no FROM ("
+            "  SELECT latency_ms, ok, throttled, "
+            "  ROW_NUMBER() OVER (PARTITION BY conversation_id ORDER BY ts) AS turn_no "
+            "  FROM events WHERE run_id=? AND kind='turn' AND conversation_id IS NOT NULL"
+            ")", (run_id,)).fetchall()
+
+    groups: dict[str, list] = {}
+    for r in rows:
+        groups.setdefault(r["grp"], []).append(r)
+
+    out = []
+    for grp, items in groups.items():
+        lats = sorted(i["latency_ms"] for i in items if i["latency_ms"] is not None)
+        total = len(items)
+        ok_count = sum(1 for i in items if i["ok"])
+        thr_count = sum(1 for i in items if i["throttled"])
+        out.append({
+            "label": grp,
+            "requests": total,
+            "success_rate": round(100 * ok_count / total, 1) if total else None,
+            "p50": round(_percentile(lats, 50)) if lats else None,
+            "p95": round(_percentile(lats, 95)) if lats else None,
+            "errors": total - ok_count,
+            "throttled": thr_count,
+        })
+    if dimension == "turn_position":
+        out.sort(key=lambda d: int(d["label"].split(" ")[1]))
+    else:
+        out.sort(key=lambda d: -d["requests"])
+    return out
+
+
 def list_runs(limit: int = 200) -> list[dict]:
     c = _conn()
     rows = c.execute(
@@ -307,6 +443,15 @@ def update_transcript_enrichment(run_id: str, result: dict) -> dict | None:
     c = _conn()
     with _lock:
         c.execute("UPDATE runs SET transcript_json=? WHERE id=?",
+                  (json.dumps(result), run_id))
+        c.commit()
+    return get(run_id)
+
+
+def update_app_insights(run_id: str, result: dict) -> dict | None:
+    c = _conn()
+    with _lock:
+        c.execute("UPDATE runs SET app_insights_json=? WHERE id=?",
                   (json.dumps(result), run_id))
         c.commit()
     return get(run_id)
@@ -482,6 +627,69 @@ def delete_prompt_set(set_id: str) -> None:
         c.commit()
 
 
+# ---- script sets (scripted multi-turn sessions) --------------------------
+# A saved, named GROUP of scripts for "Scripted sessions" mode: each script is
+# its own fully ordered list of turn prompts, imported from a Copilot Studio
+# test-case export (Test Case ID, Turn, Query[, Expected Response]) or typed
+# by hand. At runtime each virtual user is assigned ONE WHOLE SCRIPT (picked
+# randomly from the set) rather than cycling through a single shared pool --
+# scripts are free to have DIFFERENT turn counts (a real exported test-case
+# file naturally has test cases of varying length), each session's turn
+# count is simply whatever its chosen script has. Stored as a parent
+# (script_sets) + child (script_set_items, one row per script) pair so each
+# script is independently addressable, not one opaque JSON blob.
+
+def save_script_set(name: str, scripts: list[list[str]], set_id: str | None = None) -> dict:
+    if not scripts:
+        raise ValueError("At least one script is required.")
+    c = _conn()
+    sid = set_id or uuid.uuid4().hex[:12]
+    created_iso = time.strftime("%Y-%m-%d %H:%M:%S")
+    with _lock:
+        c.execute(
+            "INSERT INTO script_sets (id, name, created_iso) VALUES (?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET name=excluded.name",
+            (sid, name, created_iso))
+        # Replace-all-children on save: simplest correct semantics for an
+        # editor UI (add/remove/reorder scripts freely), avoids having to
+        # diff old vs. new script lists.
+        c.execute("DELETE FROM script_set_items WHERE script_set_id=?", (sid,))
+        for seq, turns in enumerate(scripts):
+            c.execute(
+                "INSERT INTO script_set_items (id, script_set_id, seq, turns_json) VALUES (?,?,?,?)",
+                (uuid.uuid4().hex[:12], sid, seq, json.dumps(turns)))
+        c.commit()
+    return {"id": sid, "name": name, "created_iso": created_iso, "scripts": scripts}
+
+
+
+def list_script_sets() -> list[dict]:
+    c = _conn()
+    rows = c.execute("SELECT id, name, created_iso FROM script_sets ORDER BY name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_script_set(set_id: str) -> dict | None:
+    c = _conn()
+    row = c.execute("SELECT * FROM script_sets WHERE id=?", (set_id,)).fetchone()
+    if not row:
+        return None
+    d = dict(row)
+    items = c.execute(
+        "SELECT turns_json FROM script_set_items WHERE script_set_id=? ORDER BY seq", (set_id,)
+    ).fetchall()
+    d["scripts"] = [json.loads(r["turns_json"]) for r in items]
+    return d
+
+
+def delete_script_set(set_id: str) -> None:
+    c = _conn()
+    with _lock:
+        c.execute("DELETE FROM script_set_items WHERE script_set_id=?", (set_id,))
+        c.execute("DELETE FROM script_sets WHERE id=?", (set_id,))
+        c.commit()
+
+
 # ---- per-account enabled/disabled state ------------------------------------
 # Lets a user exclude specific signed-in accounts from actually being used in
 # a run's Account Pool, without removing them entirely (re-enable any time).
@@ -504,6 +712,37 @@ def set_account_enabled(tenant_id: str, client_id: str, home_account_id: str, en
             "VALUES (?,?,?,?) ON CONFLICT(tenant_id, client_id, home_account_id) "
             "DO UPDATE SET enabled=excluded.enabled",
             (tenant_id, client_id, home_account_id, 1 if enabled else 0))
+        c.commit()
+
+
+# ---- connector consent cache --------------------------------------------
+# See connector_consents table comment in SCHEMA: consent is permanent per
+# (identity, connector), so once observed it never needs re-checking.
+
+def get_consented_connectors(tenant_id: str, client_id: str, home_account_id: str,
+                              schema_name: str) -> set[str]:
+    c = _conn()
+    rows = c.execute(
+        "SELECT connector_logical_name FROM connector_consents "
+        "WHERE tenant_id=? AND client_id=? AND home_account_id=? AND schema_name=?",
+        (tenant_id, client_id, home_account_id, schema_name)).fetchall()
+    return {r["connector_logical_name"] for r in rows}
+
+
+def mark_connectors_consented(tenant_id: str, client_id: str, home_account_id: str,
+                               schema_name: str, connector_logical_names) -> None:
+    if not connector_logical_names:
+        return
+    c = _conn()
+    import time as _time
+    now_iso = _time.strftime("%Y-%m-%d %H:%M:%S", _time.gmtime())
+    with _lock:
+        for name in connector_logical_names:
+            c.execute(
+                "INSERT OR REPLACE INTO connector_consents "
+                "(tenant_id, client_id, home_account_id, schema_name, connector_logical_name, resolved_iso) "
+                "VALUES (?,?,?,?,?,?)",
+                (tenant_id, client_id, home_account_id, schema_name, name, now_iso))
         c.commit()
 
 

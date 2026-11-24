@@ -3,9 +3,8 @@ Copilot Studio A2A conversation client — alternative to D2EClient, same
 TurnResult/stats contract so it drops into engine.py/stats.py/run_store.py
 unchanged.
 
-Wire format (empirically discovered against the PFECRM tenant's
-`crc13_earlytest_FRyDFI` agent — see plan.md "2026-11-05: PFECRM
-authenticated conversation" for the full investigation notes):
+Wire format (empirically discovered against a real D2E-authenticated-conversation
+test agent -- see repo history/notes for the full investigation, if retained):
 
   POST {base_url}
     Authorization: Bearer <token>   (scope: .../copilotstudio-a2a/MCS.InvokeAsA2A)

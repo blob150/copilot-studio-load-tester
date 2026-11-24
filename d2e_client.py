@@ -41,6 +41,13 @@ class TurnResult:
     knowledge_hits: int = 0
     user_id: str | None = None   # set by engine.py: which virtual user/session this was
     prompt: str | None = None    # set by engine.py: the prompt text sent (turns only)
+    account: str | None = None   # set by engine.py: the REAL pooled-account username
+                                  # that backed this session (e.g. "alice@contoso.com"),
+                                  # distinct from user_id above which is just the
+                                  # synthetic virtual-user label ("vu3"/"smoke0") --
+                                  # None for single-account auth modes (static/
+                                  # devicecode/confidential), where there's no
+                                  # per-session account to report.
     tool_error: bool = False     # True if a downstream tool/connector failed internally
                                  # even though the overall HTTP response was 200 OK
     tool_errors: list = field(default_factory=list)  # [{tool, path, detail}, ...]
@@ -257,3 +264,12 @@ class D2EClient:
             }
         }
         return self._post(url, token, body)
+
+    def send_activity(self, token: str, conversation_id: str, activity: dict) -> TurnResult:
+        """Send an arbitrary Bot Framework activity instead of a plain text
+        message -- e.g. a "value"-type activity submitting an Adaptive Card
+        action (used by preflight.py to auto-submit a connector consent
+        card's "Allow" action, the same JSON the card's button sends when
+        clicked interactively)."""
+        url = f"{self.base}/conversations/{conversation_id}?api-version={self.api_version}"
+        return self._post(url, token, {"activity": activity})

@@ -1,6 +1,8 @@
 # Secrets & local auth
 *token_cache*.bin
 config.json
+appinsights_config.json
+.pac_env_profile_cache.json
 *.env
 .env
 
@@ -31,3 +33,10 @@ venv/
 # OS
 .DS_Store
 Thumbs.db
+
+# PyInstaller build artifacts / packaged installer (built locally, not source)
+build/
+dist/
+*.spec
+installer/app/
+CopilotStudioLoadTester-Installer.zip

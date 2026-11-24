@@ -77,8 +77,8 @@ def main() -> None:
         # minimal config when only a token is supplied
         cfg = {
             "host": os.environ.get("D2E_HOST",
-                "ea32dda382d5e9c4a499d7d7f2d31b.f3.environment.api.powerplatform.com"),
-            "schema": os.environ.get("D2E_SCHEMA", "new_SOPStandardAgent"),
+                "<ENVIRONMENT_HOST>.environment.api.powerplatform.com"),
+            "schema": os.environ.get("D2E_SCHEMA", "<AGENT_SCHEMA_NAME>"),
             "prompts": ["What is the standard operating procedure for onboarding?"],
         }
 
