@@ -42,19 +42,18 @@ same invocation surfaces:
 |---|---|---|
 | D2E endpoint (`/copilotstudio/dataverse-backed/.../conversations`) | ✅ Works | ❌ **Hard rejection** — HTTP 200 + canned message *"This action doesn't support agents built with the GitHub Copilot harness"*, then `turn.complete`. No real conversation happens. |
 | Direct Line / Power Automate "Microsoft Copilot Studio" connector | ✅ Works | ❌ Also rejected (Microsoft-acknowledged, unresolved as of this writing — see `microsoft/Agents-for-net#1015`) |
-| A2A client channel (`copilotstudio-a2a`, preview) | N/A | ⚠️ Auth works; backend currently returns a bare `404 ResourceNotFound` for every call in our testing (tenant-dependent rollout, not a client-side problem) |
-| MCP client channel (`copilotstudio-mcp`, preview) | N/A | ⚠️ Auth works; backend currently returns a clean JSON-RPC error *"The MCP endpoint is not enabled for this environment"* |
+| A2A client channel (`copilotstudio-a2a`, preview) | N/A | ✅ **Confirmed working end-to-end** — this tool has real 100%-success load test runs against GHCP-harness agents via A2A. Still a staged rollout per-environment: some environments return a bare `404 ResourceNotFound` (A2A not yet provisioned there) instead of a real response — the Agent Card discovery call below tells you which bucket a given environment is in. |
+| MCP client channel (`copilotstudio-mcp`, preview) | N/A | ⚠️ Auth works (`mcp_confidential` auth mode); not wired up as a first-class load-test engine protocol in this tool (no `MCPClient`/engine mode exists, unlike A2A) — exploratory only. |
 
 **This tool auto-detects the D2E rejection** (`harness_unsupported` on each turn,
 surfaced as a `harness_guess` per run and a red warning banner mid-test) so you never
-mistake a 100%-rejected run for a successful one — but if your target agent is GHCP-
-harness, **the only confirmed-working way to generate real load against it today is
-the Agent node inside a Copilot Studio "workflow"**, driven from inside Studio itself
-(no external REST contract exists for that path). `a2a_client.py` remains in this
-repo as the real, working A2A client (once Microsoft finishes rolling out the A2A
-channel for a given tenant/environment) — the one-off exploration scripts used to
-validate it against a real tenant during development have since been removed from
-the repo (they hardcoded real tenant/account identifiers).
+mistake a 100%-rejected run for a successful one. For GHCP-harness agents, **A2A is
+the real, confirmed-working, first-class way to generate load against them** — set
+`protocol: "a2a"` and it runs through the exact same engine/Run History pipeline as
+D2E (see below). The Copilot Studio "workflow" Agent node (driven from inside Studio
+itself) remains a fallback only for environments where A2A genuinely isn't
+provisioned yet (confirm via the Agent Card discovery call below) — not the only
+option, as earlier notes here implied.
 
 ---
 
