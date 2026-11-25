@@ -1,5 +1,9 @@
 # Copilot Studio Load Tester — Installer
 
+> ⚠️ **Unsupported sample code.** Not an official Microsoft product, not
+> covered by any support agreement or SLA. Provided as-is, use at your own
+> risk — see the main repo README for the full disclaimer.
+
 ## Quick start
 
 1. Double-click **Install.bat**.

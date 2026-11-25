@@ -1,5 +1,13 @@
 # Copilot Studio Agent Load Tester
 
+> ⚠️ **Unsupported sample code.** This is a community/personal tool, not an
+> official Microsoft product or a supported Microsoft offering. It is provided
+> **as-is, with no warranty, no SLA, and no official support channel** — use
+> at your own risk, review the code before running it against anything you
+> care about, and do not expect fixes, security patches, or help from
+> Microsoft support for it. Issues/PRs on this repo are handled on a
+> best-effort basis by whoever maintains it, not as a supported product.
+
 A local tool for load-testing Microsoft Copilot Studio agents via the
 **Direct-to-Engine (D2E)** API — the same endpoint used by the Microsoft 365 Agents
 SDK's `CopilotStudioClient`. It includes a web dashboard for configuring runs,
@@ -642,7 +650,13 @@ static/                   Flask-served static files (favicon.ico, nav bar icon g
 installer/                Packaged-exe installer: Install.bat, install.ps1, README.md (see Install & run above)
 ```
 
-## License
+## License / Support statement
 
-TBD — private repo for now.
+TBD (license) — private repo for now.
+
+This is **unsupported sample code** — not an official Microsoft product, not
+covered by any Microsoft support agreement or SLA, and not actively monitored
+for security issues. It's shared as-is for anyone who finds it useful; review
+the code yourself before running it, especially before pointing it at a
+production environment or real Copilot Credits. Use entirely at your own risk.
 
