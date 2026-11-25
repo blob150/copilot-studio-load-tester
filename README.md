@@ -199,10 +199,12 @@ responsible for not committing it to `config.json`.
 have Python/a dev environment):**
 
 1. Build the package (one-time, on a dev machine): `pyinstaller --noconfirm
-   --onedir --noconsole --name "CopilotStudioLoadTester" --add-data
-   "templates;templates" --collect-all msal app.py`, then copy the resulting
+   --onedir --noconsole --name "CopilotStudioLoadTester" --icon "assets\app.ico"
+   --add-data "templates;templates" --add-data "static;static"
+   --collect-all msal app.py`, then copy the resulting
    `dist/CopilotStudioLoadTester/` folder into `installer/app/`.
-2. Share the whole `installer/` folder (or zip it) with whoever needs it.
+2. Share the whole `installer/` folder (or zip it — see [Releases](../../releases)
+   for a ready-made copy) with whoever needs it.
 3. They run `installer/Install.bat` — no admin rights needed. It copies the app to
    `%LOCALAPPDATA%\Programs\CopilotStudioLoadTester`, creates Start Menu/Desktop
    shortcuts, and launches it. First launch auto-opens the **Setup Wizard** (prereq
@@ -343,6 +345,28 @@ building a library of reusable, named question lists (e.g. "SOP questions",
 sets, or click **Apply to current test** to copy a set straight into the
 main Prompts box and close the popup.
 
+### Conversation modes: shared prompt pool vs. scripted sessions
+
+| Mode | Behavior |
+|---|---|
+| **Shared prompt pool** (default) | One pool of questions; every turn in every session independently picks a line (random, or sequential per `prompt_order`). Simple, good for broad coverage. |
+| **Scripted sessions** | Define several full multi-turn scripts up front (each a complete, ordered conversation); each session runs ONE script picked at random, start to finish. Scripts can have different turn counts — "Turns / session" doesn't apply in this mode. Good for replaying realistic, pre-written conversations rather than independently-random single questions per turn. |
+
+**Importing scripts from a CSV** (inside **Manage sets**, when Conversation mode
+is Scripted sessions): click **📄 Upload CSV…**. Two export formats are
+auto-detected from the same button:
+- **New-harness test-case export** — columns `Test Case ID, Turn, Query`
+  (an `Expected Response` column, if present, is ignored — this tool only
+  simulates the user side of the conversation).
+- **Standard-harness (GeneralQuality) eval export** — a few leading `#
+  ...` metadata lines, then columns `conversationNumber, question, response`.
+  There's no explicit turn number in this format; turn order is inferred from
+  each row's position within its `conversationNumber` group.
+
+Both formats group rows into one script per test case/conversation, in order,
+and replace the scripts currently in the editor — remember to **Save/Apply**
+after importing.
+
 ### Load mode & shape
 
 | Parameter | Applies to | Meaning |
@@ -368,6 +392,65 @@ main Prompts box and close the popup.
 | `prompts` | One prompt per line in the form; one is chosen at random for each turn. |
 | `stop_on_throttle` | Checkbox — if checked, the **entire run** stops the moment any single request comes back throttled (useful when you just want to find the exact onset point, not ride through it). |
 | `label` | Free-text name for the run, shown in Run History (defaults to "Load test" if blank). |
+
+---
+
+## Preflight Check
+
+Click **Preflight Check** (next to **Start Test**) before a real run to catch two
+problems that otherwise fail SILENTLY mid-run with no obvious error:
+
+1. **Token liveness** — an account's cached sign-in can expire or be revoked
+   between runs; checked for every enabled account up front.
+2. **Connector consent** — the first time a Standard-harness (D2E) agent invokes
+   an external connector for a given identity, it shows an interactive
+   "Allow/Cancel" consent card instead of answering — a load test has no way to
+   click it, so every turn hitting an un-consented connector would otherwise
+   silently come back as a technically-200-OK but empty/unhelpful turn,
+   skewing every result without ever surfacing as an error. Preflight resolves
+   it automatically (submits the same "Allow" the card's button would) once
+   per (identity, connector) — confirmed to persist permanently after that.
+
+**How it stays fast:** this agent's actual connector dependencies are looked up
+ONCE from Dataverse metadata (not guessed by replaying every configured
+prompt) — shown as a "🔎 This agent uses N connector(s)..." banner. Each
+account's consent check then stops as soon as all of ITS known connectors have
+shown a card and been granted, instead of walking the whole prompt/script
+list. A separate, permanent local cache also remembers every (identity,
+connector) pair this tool has ever personally observed being granted — once
+recorded, that pair is never re-checked again on any future run. Accounts are
+checked in parallel, not one at a time.
+
+**What "not yet confirmed" means** (shown next to an account's granted
+connectors): this tool never personally witnessed a consent card appear (and
+get granted) for that connector, for that identity — genuinely ambiguous, NOT
+a failure. It could mean the connector was already consented in a past run
+before this cache existed (harmless, most common case), or that these
+specific prompts never actually cause the agent to invoke that connector
+(a prompt-coverage gap, not a readiness gap). It's informational only and
+never blocks "Ready to run".
+
+**A real limitation this CANNOT resolve:** some connectors (observed:
+first-party connectors like MSN Weather, when configured in "Invoker"/per-user
+mode) require a genuine, one-time, INTERACTIVE OAuth "Connect your account"
+flow for each identity — a different, heavier gate than the lightweight
+"Allow" consent card above, surfaced as its own Adaptive Card with a real
+"Connect"/"Continue" button that opens a browser OAuth popup. There is no
+API-level shortcut for this (unlike the Allow card, it cannot be submitted as
+a background activity) — a human has to open a real chat with the agent as
+that identity once (e.g. the Copilot Studio test pane or Teams) and click
+through it manually. Until that's done, every turn that needs that connector
+for that identity will come back with an empty response, HTTP 200, `ok=true`
+— i.e. invisible as a load-test "error" as well; check Run History's Session
+Explorer transcripts if a run has suspiciously many short/blank answers.
+
+**Also not auto-detected by preflight today:** an identity that is signed in
+fine but was never granted access/sharing to the target agent at all gets a
+real Copilot-Studio response of *"You don't have access to talk to this bot,
+contact the owner."* — again HTTP 200/`ok=true`, so it won't show up as a
+preflight or run-time error either. If a run's transcripts show this message,
+fix it by sharing the agent with that account in Copilot Studio, not by
+re-running preflight.
 
 ---
 
@@ -553,6 +636,9 @@ smoke_test.py / ramp.py  Original CLI tools (pre-UI); still usable standalone
 ms_sample/                Microsoft's official A2A/MCP reference client code
 start_app.ps1/.bat        Desktop launcher for source installs (background start + auto-open browser)
 stop_app.bat              Stops the background server
+gen_app_icon.py           Regenerates the app icon from scratch (assets/app.ico, static/favicon.ico + nav glyph)
+assets/                   Generated icon source art (app.ico used for the PyInstaller exe icon)
+static/                   Flask-served static files (favicon.ico, nav bar icon glyph)
 installer/                Packaged-exe installer: Install.bat, install.ps1, README.md (see Install & run above)
 ```
 
